@@ -1,0 +1,113 @@
+environment_name: GodelEngine
+version: 0.2.0
+description: >
+  A self-improving RL environment where an LLM agent iteratively
+  improves solutions across real-world professional tasks
+  (technical writing, code correctness, alignment reasoning, strategy synthesis).
+  Graded by an LLM-as-a-judge against multi-axis rubrics.
+author: litterarum
+license: MIT
+
+# Action space
+actions:
+  schema:
+    type: object
+    required: [solution]
+    properties:
+      solution:
+        type: string
+        description: The agent's full replacement solution text.
+      edit_type:
+        type: string
+        enum: [rewrite, add_reasoning, simplify, add_examples, fix_errors, restructure, synthesize, refine]
+        default: rewrite
+      strategy_note:
+        type: string
+        description: Optional agent rationale (logged, not graded).
+
+# Observation space
+observations:
+  schema:
+    type: object
+    properties:
+      episode_id:       { type: string }
+      task_id:          { type: string }
+      task_type:        { type: string }
+      difficulty:       { type: string, enum: [easy, medium, hard, godel] }
+      task_prompt:      { type: string }
+      current_solution: { type: string }
+      total_score:      { type: number, minimum: 0.0, maximum: 1.0 }
+      rubric_scores:
+        type: object
+        properties:
+          scores:   { type: object, additionalProperties: { type: number } }
+          weights:  { type: object, additionalProperties: { type: number } }
+          feedback: { type: object, additionalProperties: { type: string } }
+      step:                 { type: integer }
+      max_steps:            { type: integer, default: 10 }
+      improvement_history:  { type: array, items: { type: number } }
+      feedback_summary:     { type: string }
+
+# Reward function
+reward:
+  description: >
+    reward = (score_t - score_{t-1}) - 0.005 * step_cost
+  range: [-1.0, 1.0]
+  termination:
+    - score >= 0.95 (success)
+    - plateau: last 3 deltas all < 0.005 (stagnation)
+    - step >= max_steps (truncation)
+
+# Tasks
+tasks:
+  - id: factual_qa
+    difficulty: easy
+    description: "Expand a one-sentence stub into a complete, accurate scientific explanation."
+    rubrics: [coverage, detail, structure]
+
+  - id: alignment_qa
+    difficulty: easy
+    description: "Explain complex AI alignment concepts (RLHF, HHH, reward hacking)."
+    rubrics: [technical_accuracy, clarity, completeness]
+
+  - id: code_improvement
+    difficulty: medium
+    description: "Write correct Python code that passes all unit tests."
+    rubrics: [syntax, tests, documentation]
+    grader: deterministic  # AST + exec() — no LLM needed
+
+  - id: python_optimized
+    difficulty: medium
+    description: "Refactor inefficient Python scripts for performance and readability."
+    rubrics: [correctness, efficiency, documentation]
+
+  - id: reasoning
+    difficulty: medium
+    description: "Solve multi-step logical inference problems with explicit chain-of-thought."
+    rubrics: [logical_validity, completeness, clarity]
+
+  - id: adr_writing
+    difficulty: hard
+    description: "Author a professional Architecture Decision Record from rough notes."
+    rubrics: [structure, completeness, trade_off_analysis]
+
+  - id: strategy_optimization
+    difficulty: godel
+    description: >
+      Recursive self-improvement: evolve a reasoning template, then
+      evaluate it empirically against a downstream challenge.
+    rubrics: [self_verification, structural_rigor, recursive_potential, downstream_quality, empirical_downstream]
+    grader: two_phase  # structural + empirical downstream test
+
+# Runtime
+run:
+  timeout_seconds: 120
+  async_supported: true
+  max_steps: 10
+
+# Interfaces
+api:
+  reset:  { method: POST, path: /reset,  body: "{ task_type?, difficulty? }" }
+  step:   { method: POST, path: /step,   body: GodelAction }
+  run:    { method: POST, path: /run,    description: "Auto-runs one LLM agent step." }
+  state:  { method: GET,  path: /state,  returns: GodelState }

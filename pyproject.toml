@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "godel_engine"
+version = "0.1.0"
+description = "A self-improving RL environment for strategy evolution."
+dependencies = [
+    "pydantic>=2.0",
+    "httpx>=0.20.0",
+    "litellm>=1.31.0",
+    "python-dotenv>=1.0.1"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "fastapi",
+    "uvicorn",
+    "websockets"
+]
+
+[tool.setuptools]
+packages = ["godel_engine"]

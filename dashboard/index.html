@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gödel Env Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
+        rel="stylesheet">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="style.css?v=4">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <header class="kernel-header">
+        <div class="logo-container">
+            <h1 class="logo">Gödel <span>Env</span></h1>
+        </div>
+        <div class="controls-container">
+            <select id="task-select" class="task-dropdown">
+                <option value="factual_qa">FACTUAL Q&A</option>
+                <option value="code_improvement">CODE FIX</option>
+                <option value="reasoning">REASONING</option>
+                <option value="alignment_qa">ALIGNMENT Q&A</option>
+                <option value="python_optimized">CODE OPTIMIZATION</option>
+                <option value="adr_writing">ADR WRITING</option>
+                <option value="strategy_optimization">META-STRATEGY</option>
+            </select>
+            <button id="btn-reset" class="btn btn-execute">RESET</button>
+            <button id="btn-run" class="btn btn-execute">RUN</button>
+        </div>
+    </header>
+
+    <main class="kernel-grid">
+        <section class="panel logs">
+            <div class="panel-tag">LOGS</div>
+            <div class="log-container" id="log-stream">
+                <div class="log-entry system">Initializing Gödel Env...</div>
+                <div class="log-entry system">Standing by for interaction.</div>
+            </div>
+            <div class="trajectory-mini">
+                <canvas id="trajectoryChart"></canvas>
+            </div>
+        </section>
+
+        <aside class="panel status">
+            <div class="panel-tag">ENGINE STATUS</div>
+
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="label">SCORE</div>
+                    <div class="value accent" id="val-score">0.00</div>
+                </div>
+                <div class="status-item">
+                    <div class="label">DELTA</div>
+                    <div class="value" id="val-delta">+0.00</div>
+                </div>
+                <div class="status-item">
+                    <div class="label">STEP</div>
+                    <div class="value" id="val-step">0</div>
+                </div>
+            </div>
+
+            <div class="rubric-section">
+                <div class="panel-tag sub">GRADES / RUBRICS</div>
+                <div id="rubric-list" class="rubric-container">
+                    <div class="empty">No active grading session.</div>
+                </div>
+            </div>
+
+            <div class="solution-preview">
+                <div class="panel-tag sub">CURRENT SOLUTION</div>
+                <pre id="current-solution" class="solution-text">Awaiting solution...</pre>
+            </div>
+        </aside>
+    </main>
+
+    <script src="app.js?v=4"></script>
+</body>
+
+</html>
