@@ -1,6 +1,6 @@
 ---
 title: GodelEnv
-emoji: ""
+emoji: "🚞"
 colorFrom: purple
 colorTo: blue
 sdk: docker
