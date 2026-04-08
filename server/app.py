@@ -25,8 +25,14 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 app = FastAPI(title="Gödel Env Server")
 
+from fastapi.responses import RedirectResponse
+
 # Mount API
 app.include_router(api_router)
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/dashboard/")
 
 # Mount Dashboard frontend
 app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
