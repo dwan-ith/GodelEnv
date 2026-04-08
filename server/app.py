@@ -49,6 +49,12 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the Godel Env server (used by [project.scripts])."""
     import uvicorn
-    uvicorn.run("server.app:app", host="0.0.0.0", port=8000, reload=False)
+    import os
+    port = int(os.getenv("PORT", 7860))
+    uvicorn.run("server.app:app", host="0.0.0.0", port=port, reload=False)
+
+if __name__ == "__main__":
+    main()
