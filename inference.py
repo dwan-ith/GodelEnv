@@ -17,7 +17,7 @@ from godel_engine.environment import GodelEnvironment
 from godel_engine.agent import AutoAgent
 from godel_engine.models import GodelAction
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 # Force standard ASCII output to avoid charmap errors on Windows
 if hasattr(sys.stdout, "reconfigure"):
