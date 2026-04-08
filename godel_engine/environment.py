@@ -135,7 +135,7 @@ class GodelEnvironment:
             self.step_count >= 3
             and all(abs(d) < 0.005 for d in self.improvement_history[-3:])
         )
-        terminated = score >= 0.95 or plateau
+        terminated = plateau
         truncated = self.step_count >= self.max_steps
 
         # Strategy evolution bookkeeping
