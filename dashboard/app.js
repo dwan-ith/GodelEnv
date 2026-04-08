@@ -44,7 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let ws = null;
 
     function connect() {
-        ws = new WebSocket(`ws://${location.host}/ws/stream`);
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${location.host}/ws/stream`);
         ws.onopen = () => logSystem("Link established to Gödel Env core.");
         ws.onclose = () => {
             logError("Link severed. Retrying...");
