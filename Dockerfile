@@ -1,26 +1,33 @@
 FROM python:3.11-slim
 
+# Install uv — dramatically faster than pip
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # HF Spaces runs as non-root
 RUN useradd -m -u 1000 user
 WORKDIR /app
 
-# Install dependencies first (cache layer)
-COPY server/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy only dependency manifests first (maximises cache hit on rebuilds)
+COPY pyproject.toml uv.lock ./
 
-# Install the godel_engine package
-COPY pyproject.toml ./
+# Install all dependencies from the lockfile — reproducible and fast
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Copy application code
 COPY godel_engine/ ./godel_engine/
-RUN pip install --no-cache-dir -e .
+COPY server/ ./server/
+COPY dashboard/ ./dashboard/
+COPY inference.py baseline.py ./
 
-# Copy the rest of the application
-COPY . .
+# Install the local package itself (no-deps since uv sync already got them)
+RUN uv pip install --system --no-deps -e .
 
-# Ensure the non-root user owns the files
+# Fix ownership for HF non-root user
 RUN chown -R user:user /app
 USER user
 
-# HF Spaces expects port 7860
+ENV PATH="/app/.venv/bin:$PATH"
+
 EXPOSE 7860
 
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

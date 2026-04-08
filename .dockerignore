@@ -1,0 +1,14 @@
+.git
+.env
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+*.egg-info
+.venv
+venv
+node_modules
+test_hf.py
+fix_readme.py
+baseline_results.json
+results.json
