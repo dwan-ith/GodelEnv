@@ -1,4 +1,15 @@
-# ♾️ Gödel Env
+﻿---
+title: GodelEnv
+emoji: ""
+colorFrom: purple
+colorTo: blue
+sdk: docker
+pinned: false
+tags:
+  - openenv
+  - reinforcement-learning
+---
+# â™¾ï¸ GÃ¶del Env
 
 > A self-improving reinforcement learning environment built on [OpenEnv](https://openenv.dev).
 
@@ -6,36 +17,36 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An LLM agent iteratively improves solutions across professional real-world domains. Each step is graded by a multi-axis **LLM-as-a-judge** rubric grader, producing partial progress signals (not sparse binary rewards). The hardest task ("Gödel tier") is fully recursive: the agent must improve a *reasoning template* that is then empirically tested on a downstream challenge.
+An LLM agent iteratively improves solutions across professional real-world domains. Each step is graded by a multi-axis **LLM-as-a-judge** rubric grader, producing partial progress signals (not sparse binary rewards). The hardest task ("GÃ¶del tier") is fully recursive: the agent must improve a *reasoning template* that is then empirically tested on a downstream challenge.
 
 ---
 
 ## Architecture
 
 ```
-godel_engine/           ← Core RL package (no web server needed)
-│   environment.py      ← GodelEnvironment: reset() / step() / state()
-│   agent.py            ← AutoAgent: LLM-based action policy
-│   evolution.py        ← DarwinPool + HuxleyTracker (strategy evolution)
-│   models.py           ← Typed Pydantic models (GodelAction, GodelObservation…)
-│   graders/
-│       agent_grader.py ← LLM-as-a-judge grader (LiteLLM)
-│   tasks/
-│       base.py         ← BaseTask abstract class
-│       factual_qa.py   ← Easy: factual explanation
-│       alignment_qa.py ← Easy: AI safety concepts
-│       code_improvement.py ← Medium: Python correctness (deterministic)
-│       python_optimized.py ← Medium: code performance + docs
-│       reasoning.py    ← Medium: multi-step logic
-│       adr_writing.py  ← Hard: Architecture Decision Records
-│       strategy_optimization.py ← Gödel: recursive self-improvement
-server/                 ← Optional FastAPI dashboard wrapper
-baseline.py             ← Standalone RL evaluation script
+godel_engine/           â† Core RL package (no web server needed)
+â”‚   environment.py      â† GodelEnvironment: reset() / step() / state()
+â”‚   agent.py            â† AutoAgent: LLM-based action policy
+â”‚   evolution.py        â† DarwinPool + HuxleyTracker (strategy evolution)
+â”‚   models.py           â† Typed Pydantic models (GodelAction, GodelObservationâ€¦)
+â”‚   graders/
+â”‚       agent_grader.py â† LLM-as-a-judge grader (LiteLLM)
+â”‚   tasks/
+â”‚       base.py         â† BaseTask abstract class
+â”‚       factual_qa.py   â† Easy: factual explanation
+â”‚       alignment_qa.py â† Easy: AI safety concepts
+â”‚       code_improvement.py â† Medium: Python correctness (deterministic)
+â”‚       python_optimized.py â† Medium: code performance + docs
+â”‚       reasoning.py    â† Medium: multi-step logic
+â”‚       adr_writing.py  â† Hard: Architecture Decision Records
+â”‚       strategy_optimization.py â† GÃ¶del: recursive self-improvement
+server/                 â† Optional FastAPI dashboard wrapper
+baseline.py             â† Standalone RL evaluation script
 ```
 
 ---
 
-## Tasks (easy → medium → hard → gödel)
+## Tasks (easy â†’ medium â†’ hard â†’ gÃ¶del)
 
 | Task | Difficulty | Grader | Rubrics |
 |---|---|---|---|
@@ -45,7 +56,7 @@ baseline.py             ← Standalone RL evaluation script
 | `python_optimized` | Medium | LLM judge | correctness, efficiency, documentation |
 | `reasoning` | Medium | LLM judge | logical_validity, completeness, clarity |
 | `adr_writing` | Hard | LLM judge | structure, completeness, trade_off_analysis |
-| `strategy_optimization` | Gödel | Two-phase (structural + empirical) | self_verification, structural_rigor, recursive_potential, downstream_quality |
+| `strategy_optimization` | GÃ¶del | Two-phase (structural + empirical) | self_verification, structural_rigor, recursive_potential, downstream_quality |
 
 ---
 
@@ -94,13 +105,13 @@ pip install -e ".[dev]"
 ```bash
 cp .env.example .env
 # Edit .env and add your key:
-# OPENROUTER_API_KEY=sk-or-...   (recommended — free tier available)
+# OPENROUTER_API_KEY=sk-or-...   (recommended â€” free tier available)
 # OPENAI_API_KEY=sk-...
 # GEMINI_API_KEY=...
 # ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 3. Run Baseline (standalone — no server needed)
+### 3. Run Baseline (standalone â€” no server needed)
 
 ```bash
 # Run all 7 tasks
@@ -116,22 +127,22 @@ python baseline.py --episodes 7 --seed 42 --output results.json
 Expected output:
 ```
 ============================================================
-  GÖDEL ENV — BASELINE EVALUATION
+  GÃ–DEL ENV â€” BASELINE EVALUATION
 ============================================================
   Tasks:    ['factual_qa', 'alignment_qa', ...]
   Episodes: 7
 
-── Episode 1/7 | factual_qa ──
+â”€â”€ Episode 1/7 | factual_qa â”€â”€
   Initial Score: 0.050
-  step 01 | [████████████░░░░░░░░░░░░░░░░░░] 0.420 | reward=+0.3700 | ...
-  step 02 | [█████████████████████░░░░░░░░░] 0.720 | reward=+0.3000 | ...
-  ✓ Done | final=0.720 Δ=+0.670 | steps=2
+  step 01 | [â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘] 0.420 | reward=+0.3700 | ...
+  step 02 | [â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘] 0.720 | reward=+0.3000 | ...
+  âœ“ Done | final=0.720 Î”=+0.670 | steps=2
 ...
 ============================================================
   RESULTS SUMMARY
   Avg init score:  0.0621
   Avg final score: 0.7340
-  Avg Δ score:    +0.6719
+  Avg Î” score:    +0.6719
 ============================================================
 ```
 
@@ -182,10 +193,10 @@ The dashboard will be live at `http://localhost:7860/dashboard/`.
 
 ---
 
-## 🧬 Evolutionary Layers
+## ðŸ§¬ Evolutionary Layers
 
 - **Darwin Pool**: Tournament-based strategy selection. Strategies that produce higher scores survive and spawn children.
-- **Huxley Tracker**: Measures **Clade-Metaproductivity (CMP)** — strategies that produce *better descendants* are prioritized, not just strategies with high personal scores.
+- **Huxley Tracker**: Measures **Clade-Metaproductivity (CMP)** â€” strategies that produce *better descendants* are prioritized, not just strategies with high personal scores.
 
 ---
 
@@ -195,7 +206,7 @@ The dashboard will be live at `http://localhost:7860/dashboard/`.
 python baseline.py --episodes 7 --seed 42 --output baseline_results.json
 ```
 
-| Task | Difficulty | Avg Score | Avg Δ |
+| Task | Difficulty | Avg Score | Avg Î” |
 |---|---|---|---|
 | factual_qa | Easy | ~0.72 | +0.67 |
 | alignment_qa | Easy | ~0.68 | +0.63 |
@@ -203,6 +214,9 @@ python baseline.py --episodes 7 --seed 42 --output baseline_results.json
 | python_optimized | Medium | ~0.65 | +0.55 |
 | reasoning | Medium | ~0.63 | +0.53 |
 | adr_writing | Hard | ~0.58 | +0.48 |
-| strategy_optimization | Gödel | ~0.71 | +0.63 |
+| strategy_optimization | GÃ¶del | ~0.71 | +0.63 |
 
 *(Scores vary with model and temperature.)*
+
+
+
