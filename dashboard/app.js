@@ -131,24 +131,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const task = taskSelect.value;
         logSystem("Resetting environment...");
         try {
-            await fetch('/reset', {
+            const res = await fetch('/reset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task_type: task })
             });
+            const data = await res.json();
+            
+            // Manually process reset state
+            if (trajectoryChart) {
+                trajectoryChart.data.labels = [0];
+                trajectoryChart.data.datasets[0].data = [data.observation.total_score];
+                trajectoryChart.update();
+            }
+            initialScore = data.observation.total_score;
+            if (valScore) valScore.innerText = initialScore.toFixed(2);
+            if (valDelta) valDelta.innerText = "0.00";
+            if (valStep) valStep.innerText = "0";
+            if (currentSolution) currentSolution.innerText = data.observation.current_solution;
+            if (rubricList) rubricList.innerHTML = '<p style="color:#555;font-size:11px">Awaiting step...</p>';
+            
+            logSystem(`Environment loaded. Task: ${data.observation.task_id.toUpperCase()}`);
+            logSystem(`Prompt: "${data.observation.task_prompt.substring(0, 80)}..."`);
         } catch(err) { logError(`Reset failed: ${err.message}`); }
-
-        if (trajectoryChart) {
-            trajectoryChart.data.labels = [];
-            trajectoryChart.data.datasets[0].data = [];
-            trajectoryChart.update();
-        }
-        if (valScore) valScore.innerText = "0.00";
-        if (valDelta) valDelta.innerText = "+0.00";
-        if (valStep) valStep.innerText = "0";
-        if (currentSolution) currentSolution.innerText = "Awaiting solution...";
-        if (rubricList) rubricList.innerHTML = '<p style="color:#555;font-size:11px">No active grading session.</p>';
-        initialScore = 0.0;
     };
 
     btnRun.onclick = async () => {
@@ -165,6 +170,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ task_type: task })
             });
             if (!resetRes.ok) throw new Error(`Reset failed: ${resetRes.status}`);
+            const resetData = await resetRes.json();
+            
+            initialScore = resetData.observation.total_score;
+            if (valScore) valScore.innerText = initialScore.toFixed(2);
+            if (valDelta) valDelta.innerText = "0.00";
+            if (valStep) valStep.innerText = "0";
+            if (currentSolution) currentSolution.innerText = resetData.observation.current_solution;
+            if (trajectoryChart) {
+                trajectoryChart.data.labels = [0];
+                trajectoryChart.data.datasets[0].data = [initialScore];
+                trajectoryChart.update();
+            }
 
             await new Promise(r => setTimeout(r, 600));
 
@@ -182,6 +199,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     break;
                 }
                 const stepData = await res.json();
+                
+                // Manually process step state
+                const obs = stepData.observation;
+                if (trajectoryChart) {
+                    trajectoryChart.data.labels.push(obs.step);
+                    trajectoryChart.data.datasets[0].data.push(obs.total_score);
+                    trajectoryChart.update();
+                }
+
+                if (valScore) valScore.innerText = obs.total_score.toFixed(2);
+                const delta = obs.total_score - initialScore;
+                if (valDelta) valDelta.innerText = (delta >= 0 ? "+" : "") + delta.toFixed(3);
+                if (valStep) valStep.innerText = obs.step;
+                if (currentSolution) currentSolution.innerText = obs.current_solution;
+                
+                logSystem(`[STEP ${obs.step}] SCORE: ${obs.total_score.toFixed(3)} | Δ: ${delta >= 0 ? "+" : ""}${delta.toFixed(3)} | ${stepData.terminated ? "TERMINATED" : "running"}`);
+                if (obs.rubric_scores && obs.rubric_scores.scores) {
+                    renderRubrics(obs.rubric_scores.scores);
+                    // Print feedback to log implicitly handles API errors
+                    let fb_preview = JSON.stringify(obs.rubric_scores.feedback).substring(0, 80);
+                    logSystem(`> Feedback: ${fb_preview}...`);
+                }
+
                 await new Promise(r => setTimeout(r, 400));
 
                 if (stepData.terminated || stepData.truncated) {
