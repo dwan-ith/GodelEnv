@@ -1,15 +1,4 @@
----
-title: GodelEnv
-emoji: "♾️"
-colorFrom: purple
-colorTo: blue
-sdk: docker
-pinned: false
-tags:
-  - openenv
-  - reinforcement-learning
----
-# â™¾ï¸ GÃ¶del Env
+# ♾️ Gödel Env
 
 > A self-improving reinforcement learning environment built on [OpenEnv](https://openenv.dev).
 
