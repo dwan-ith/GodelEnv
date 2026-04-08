@@ -5,7 +5,7 @@ The real logic lives in godel_engine.environment and godel_engine.agent.
 from __future__ import annotations
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 
 from godel_engine.models import GodelAction, GodelStepResult, GodelState
@@ -23,7 +23,7 @@ class ResetRequest(BaseModel):
 
 @router.post("/reset", response_model=GodelStepResult)
 async def reset(
-    req: Optional[ResetRequest] = None,
+    req: Optional[ResetRequest] = Body(None),
     env: GodelEnvironment = Depends(get_env),
     manager: ConnectionManager = Depends(get_ws_manager),
 ):

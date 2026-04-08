@@ -93,10 +93,15 @@ class GodelEnvironment:
         self.current_solution = self.current_instance.initial_solution
         self.current_strategy = self.pool.select()
 
-        # Grade initial (baseline) solution
-        score, rubrics, fb = await self.current_task.grade(
-            self.current_instance, self.current_solution
-        )
+        # Grade initial (baseline) solution — fallback gracefully if LLM unavailable
+        try:
+            score, rubrics, fb = await self.current_task.grade(
+                self.current_instance, self.current_solution
+            )
+        except Exception:
+            score = 0.0
+            rubrics = {k: 0.0 for k in self.current_task._get_rubrics()}
+            fb = {k: "Baseline grading deferred." for k in rubrics}
         self.current_score = score
         self.initial_score = score
 
