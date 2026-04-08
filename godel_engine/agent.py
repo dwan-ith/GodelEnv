@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 from godel_engine.models import GodelAction, EditType
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 logger = logging.getLogger("godel_env.agent")
 
 

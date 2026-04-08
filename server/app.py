@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 from server.routers.api import router as api_router
 from server.deps import get_ws_manager, ConnectionManager

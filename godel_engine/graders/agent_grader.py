@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 logger = logging.getLogger("godel_env.grader")
 
 class AgentGrader:
