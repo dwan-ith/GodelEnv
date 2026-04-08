@@ -126,8 +126,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    btnReset.onclick = () => {
-        logSystem("Environment cleared.");
+    btnReset.onclick = async () => {
+        const task = taskSelect.value;
+        logSystem("Resetting environment...");
+        try {
+            await fetch('/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_type: task })
+            });
+        } catch(err) { logError(`Reset failed: ${err.message}`); }
+
         if (trajectoryChart) {
             trajectoryChart.data.labels = [];
             trajectoryChart.data.datasets[0].data = [];
@@ -136,8 +145,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (valScore) valScore.innerText = "0.00";
         if (valDelta) valDelta.innerText = "+0.00";
         if (valStep) valStep.innerText = "0";
-        if (currentSolution) currentSolution.innerText = "Awaiting deployment...";
-        if (rubricList) rubricList.innerHTML = '';
+        if (currentSolution) currentSolution.innerText = "Awaiting solution...";
+        if (rubricList) rubricList.innerHTML = '<p style="color:#555;font-size:11px">No active grading session.</p>';
         initialScore = 0.0;
     };
 
@@ -145,42 +154,45 @@ document.addEventListener('DOMContentLoaded', () => {
         const task = taskSelect.value;
         logSystem(`Activating task: ${task.toUpperCase().replace(/_/g, ' ')}...`);
         btnRun.disabled = true;
-        btnRun.innerText = "LOADING...";
+        btnRun.innerText = "RUNNING...";
 
         try {
-            await fetch('/reset', {
+            // Always reset first so we get a fresh episode
+            const resetRes = await fetch('/reset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task_type: task })
             });
+            if (!resetRes.ok) throw new Error(`Reset failed: ${resetRes.status}`);
 
-            await new Promise(r => setTimeout(r, 800));
+            await new Promise(r => setTimeout(r, 600));
 
-            if (task === 'strategy_optimization') {
-                logSystem("Initiating Meta-Strategy Auto-Improvement Protocol...");
-                btnRun.innerText = "IMPROVING...";
-                const maxRuns = 10;
-                for (let i = 1; i <= maxRuns; i++) {
-                    logSystem(`LLM self-improvement step ${i}/${maxRuns}...`);
-                    const res = await fetch('/run', { method: 'POST' });
-                    const stepData = await res.json();
-                    await new Promise(r => setTimeout(r, 1200));
-                    
-                    if (stepData.terminated || stepData.truncated) {
-                        logSystem(`Environment signaled completion (terminated: ${stepData.terminated}).`);
-                        break;
-                    }
+            const maxSteps = task === 'strategy_optimization' ? 10 : 6;
+            logSystem(`Running improvement loop (max ${maxSteps} steps)...`);
+
+            for (let i = 1; i <= maxSteps; i++) {
+                logSystem(`Agent step ${i}/${maxSteps} — calling LLM...`);
+                btnRun.innerText = `STEP ${i}/${maxSteps}...`;
+
+                const res = await fetch('/run', { method: 'POST' });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    logError(`Step ${i} failed: ${errData.detail || res.status}`);
+                    break;
                 }
-                logSystem("Agent trajectory complete.");
-            } else {
-                logSystem("Executing Single-Shot RL Inference...");
-                btnRun.innerText = "RUNNING...";
-                await fetch('/run', { method: 'POST' });
-                logSystem("Inference complete.");
+                const stepData = await res.json();
+                await new Promise(r => setTimeout(r, 400));
+
+                if (stepData.terminated || stepData.truncated) {
+                    logSystem(`Episode complete at step ${i} (score ≥ 0.95 or stagnation).`);
+                    break;
+                }
             }
 
+            logSystem("Agent trajectory complete.");
+
         } catch (err) {
-            logError(`Activation failed: ${err.message || err}`);
+            logError(`Run failed: ${err.message || err}`);
         }
 
         btnRun.innerText = "RUN ▶";
