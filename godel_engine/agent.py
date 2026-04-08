@@ -23,13 +23,19 @@ class AutoAgent:
     """LLM-based agent that reads task + solution and proposes an improvement."""
 
     def __init__(self, max_concurrent: int = 5, timeout: int = 60):
-        # Strictly use keys as requested
-        self.api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-        self.base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-        self.model_name = os.getenv("MODEL_NAME", "meta-llama/Meta-Llama-3-8B-Instruct")
+        # Support both the mandatory Hackathon HF_TOKEN and local OPENAI_API_KEY testing
+        self.api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.base_url = os.getenv("API_BASE_URL")
+        
+        # Default to llama for HF, gpt-4o for pure OpenAI local testing
+        default_model = "meta-llama/Meta-Llama-3-8B-Instruct" if self.base_url else "gpt-4o"
+        self.model_name = os.getenv("MODEL_NAME", default_model)
 
         if self.api_key:
-            self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            self.client = AsyncOpenAI(
+                api_key=self.api_key, 
+                base_url=self.base_url if self.base_url else None
+            )
         else:
             self.client = None
 
