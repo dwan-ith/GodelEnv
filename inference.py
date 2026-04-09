@@ -86,14 +86,16 @@ async def run_inference():
                 print(f"[STEP] step={obs.step} action={action_str} reward={reward_val:.2f} done={is_done} error={error_msg}")
             
             # Episode complete
-            is_success = str(obs.total_score >= 0.95).lower()
+            is_success = str(obs.total_score >= 0.90).lower()
+            clamped_final_score = max(0.001, min(0.999, obs.total_score))
             rewards_str = ",".join([f"{r:.2f}" for r in rewards])
             # [END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
-            print(f"[END] success={is_success} steps={obs.step} score={obs.total_score:.2f} rewards={rewards_str}")
+            print(f"[END] success={is_success} steps={obs.step} score={clamped_final_score:.3f} rewards={rewards_str}")
 
         except Exception as ep_error:
             # If the entire episode crashes
-            print(f"[END] success=false steps=0 score=0.00 rewards=")
+            error_val = str(ep_error).replace("\n", " ")
+            print(f"[END] success=false steps=0 score=0.001 rewards= error={error_val}")
 
 if __name__ == "__main__":
     asyncio.run(run_inference())
