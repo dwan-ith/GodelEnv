@@ -102,6 +102,11 @@ class GodelEnvironment:
             score = 0.0
             rubrics = {k: 0.0 for k in self.current_task._get_rubrics()}
             fb = {k: "Baseline grading deferred." for k in rubrics}
+            
+        # Ensure scores are strictly between 0 and 1 for OpenEnv validation
+        score = max(0.001, min(0.999, float(score)))
+        rubrics = {k: max(0.001, min(0.999, float(v))) for k, v in rubrics.items()}
+        
         self.current_score = score
         self.initial_score = score
 
@@ -128,6 +133,11 @@ class GodelEnvironment:
         score, rubrics, fb = await self.current_task.grade(
             self.current_instance, self.current_solution
         )
+        
+        # Ensure scores are strictly between 0 and 1 for OpenEnv validation
+        score = max(0.001, min(0.999, float(score)))
+        rubrics = {k: max(0.001, min(0.999, float(v))) for k, v in rubrics.items()}
+        
         self.current_score = score
 
         # Partial-progress reward: raw score delta minus a small step cost
