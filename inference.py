@@ -93,8 +93,7 @@ async def run_inference():
 
         except Exception as ep_error:
             # If the entire episode crashes
-            error_val = str(ep_error).replace("\n", " ")
-            print(f"[END] success=false steps=0 score=0.00 rewards= error={error_val}")
+            print(f"[END] success=false steps=0 score=0.00 rewards=")
 
 if __name__ == "__main__":
     asyncio.run(run_inference())
