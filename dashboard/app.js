@@ -163,7 +163,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (failureList) {
             failureList.innerHTML = "";
             const failures = obs.recent_failures || [];
-            if (failures.length === 0) {
+            
+            // Show strategy-level rejection reasons if available
+            if (patchDecision && patchDecision.rejection_reasons?.length > 0) {
+                patchDecision.rejection_reasons.forEach(r => {
+                    const item = document.createElement("div");
+                    item.className = "failure-item";
+                    item.style.color = "#ff8888"; // Subtle indicator for strategy errors
+                    item.innerText = `[REJECTED PATCH] ${r}`;
+                    failureList.appendChild(item);
+                });
+            }
+
+            if (failures.length === 0 && (!patchDecision || !patchDecision.rejection_reasons?.length)) {
                 failureList.innerHTML = '<div class="empty">No failures recorded.</div>';
             } else {
                 failures.forEach(f => {
