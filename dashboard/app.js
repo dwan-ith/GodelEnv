@@ -11,6 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const modeIndicator = document.getElementById("mode-indicator");
     const currentSolution = document.getElementById("current-solution");
     const currentStrategy = document.getElementById("current-strategy");
+    const childStrategy = document.getElementById("child-strategy");
+    const utilityComparison = document.getElementById("utility-comparison");
     const failureList = document.getElementById("failure-list");
     const rubricList = document.getElementById("rubric-list");
     const btnReset = document.getElementById("btn-reset");
@@ -201,6 +203,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 `${stepResult.done ? "DONE" : "running"}`
             );
             
+            if (isPatch) {
+                if (childStrategy) childStrategy.innerText = stepResult.action.strategy_patch.improved_strategy || "Empty patch.";
+            } else {
+                if (childStrategy) childStrategy.innerHTML = '<div class="empty">No patch proposed in this step.</div>';
+                if (utilityComparison) utilityComparison.innerHTML = '<div class="empty">N/A</div>';
+            }
+            
             if (patchDecision) {
                 const verdict = patchDecision.accepted ? "ACCEPTED" : "REJECTED";
                 logSystem(
@@ -211,6 +220,39 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
                 if (!patchDecision.accepted && patchDecision.rejection_reasons?.length) {
                     logSystem(`Rejection reasons: ${patchDecision.rejection_reasons.join("; ")}`);
+                }
+                
+                // Render utility comparison
+                if (utilityComparison) {
+                    let html = `
+                        <div style="margin-bottom: 0.5rem; font-weight: bold; color: ${patchDecision.accepted ? '#00ff88' : '#ff3e3e'};">
+                            VERDICT: ${verdict}
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.5rem;">
+                            <div>
+                                <div style="color: var(--text-dim); font-size: 0.7rem;">PARENT UTILITY</div>
+                                <div style="font-size: 1.2rem;">${patchDecision.parent_utility.toFixed(3)}</div>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-dim); font-size: 0.7rem;">CHILD UTILITY</div>
+                                <div style="font-size: 1.2rem; color: ${patchDecision.improvement > 0 ? '#00ff88' : 'inherit'};">${patchDecision.child_utility.toFixed(3)}</div>
+                            </div>
+                        </div>
+                        <div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 0.5rem;">
+                            IMPROVEMENT: <span style="color: ${patchDecision.improvement > 0 ? '#00ff88' : (patchDecision.improvement < 0 ? '#ff3e3e' : 'inherit')};">${(patchDecision.improvement > 0 ? '+' : '')}${patchDecision.improvement.toFixed(3)}</span>
+                        </div>
+                    `;
+                    if (patchDecision.rejection_reasons?.length > 0) {
+                        html += `
+                            <div style="margin-top: 0.5rem; border-top: 1px solid #333; padding-top: 0.5rem;">
+                                <div style="color: #ff3e3e; font-size: 0.7rem; margin-bottom: 0.2rem;">REJECTION REASONS:</div>
+                                <ul style="color: #ff3e3e; padding-left: 1rem; font-size: 0.7rem;">
+                                    ${patchDecision.rejection_reasons.map(r => `<li>${r}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    }
+                    utilityComparison.innerHTML = html;
                 }
             }
             if (rewardBreakdown) {
