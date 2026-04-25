@@ -4,7 +4,6 @@ AutoAgent for Godel Env.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Dict
 
@@ -12,6 +11,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from godel_engine.heuristic_policy import build_heuristic_action
+from godel_engine.llm_json import parse_llm_json_object
 from godel_engine.models import EditType, GodelAction, StrategyPatch
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
@@ -21,17 +21,6 @@ from godel_engine.provider_runtime import (
 
 load_dotenv(override=False)
 logger = logging.getLogger("godel_env.agent")
-
-
-def _extract_json_blob(text: str) -> str | None:
-    stripped = text.strip()
-    if stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start >= 0 and end > start:
-        return stripped[start : end + 1]
-    return None
 
 
 class AutoAgent:
@@ -176,8 +165,7 @@ For recursive self-improvement (PREFERRED for strategy_optimization tasks):
                     )
 
                 content = (response.choices[0].message.content or "").strip()
-                blob = _extract_json_blob(content)
-                data = json.loads(blob or content)
+                data = parse_llm_json_object(content)
                 patch = None
                 if "improved_strategy" in data:
                     patch = StrategyPatch(

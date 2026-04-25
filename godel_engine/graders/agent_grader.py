@@ -4,7 +4,6 @@ LLM-first grading with deterministic fallback support.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from typing import Dict
@@ -12,6 +11,7 @@ from typing import Dict
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
+from godel_engine.llm_json import parse_llm_json_object
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
     load_provider_configs,
@@ -20,18 +20,6 @@ from godel_engine.provider_runtime import (
 
 load_dotenv(override=False)
 logger = logging.getLogger("godel_env.grader")
-
-
-def _extract_json_blob(text: str) -> str | None:
-    stripped = text.strip()
-    if stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
-
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start >= 0 and end > start:
-        return stripped[start : end + 1]
-    return None
 
 
 class AgentGrader:
@@ -136,9 +124,8 @@ class AgentGrader:
                         timeout=self.timeout,
                     )
 
-                content = response.choices[0].message.content or "{}"
-                blob = _extract_json_blob(content)
-                payload = json.loads(blob or "{}")
+                content = response.choices[0].message.content or ""
+                payload = parse_llm_json_object(content if content.strip() else "{}")
 
                 raw_scores = payload.get("scores", {})
                 raw_feedback = payload.get("feedback", {})

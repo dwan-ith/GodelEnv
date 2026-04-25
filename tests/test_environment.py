@@ -24,6 +24,7 @@ from godel_engine.evolution import Strategy
 from godel_engine.heuristic_policy import build_heuristic_action
 from godel_engine.provider_runtime import (
     DEFAULT_HF_ROUTER_BASE_URL,
+    DEFAULT_OPENAI_MODEL,
     ProviderCircuitBreaker,
     load_provider_configs,
 )
@@ -291,3 +292,27 @@ def test_load_provider_configs_accepts_hf_aliases(monkeypatch) -> None:
     assert huggingface_config.name == "huggingface"
     assert huggingface_config.base_url == DEFAULT_HF_ROUTER_BASE_URL
     assert huggingface_config.model_name == "Qwen/Qwen2.5-7B-Instruct:novita"
+
+
+def test_openai_never_uses_hub_model_id_from_model_name(monkeypatch) -> None:
+    """MODEL_NAME is for HuggingFace; do not pass Qwen/... to the OpenAI API."""
+    for key in (
+        "HF_TOKEN",
+        "HF_API_KEY",
+        "HUGGINGFACE_API_KEY",
+        "HUGGINGFACE_TOKEN",
+        "HUGGINGFACEHUB_API_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "HF_ACCESS_TOKEN",
+        "API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
+    monkeypatch.delenv("OPENAI_MODEL_NAME", raising=False)
+
+    configs = load_provider_configs()
+    openai_config = next(c for c in configs if c.name == "openai")
+    assert openai_config.model_name == DEFAULT_OPENAI_MODEL
+    assert "/" not in openai_config.model_name

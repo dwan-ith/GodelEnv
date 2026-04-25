@@ -64,6 +64,43 @@ def _global_model_name() -> str | None:
     return _env("MODEL_NAME")
 
 
+def _looks_like_huggingface_hub_model(name: str) -> bool:
+    """
+    OpenAI model IDs are like gpt-4o-mini, o1, o1-mini.
+    Hub-style IDs are org/model, e.g. Qwen/Qwen2.5-7B-Instruct.
+    If MODEL_NAME is a Hub ID, it must not be sent to the OpenAI API.
+    """
+    if not name or "/" not in name:
+        return False
+    if name.lower().startswith("ft:") or "ft:" in name[:4]:
+        return False
+    return True
+
+
+def _openai_model_name() -> str:
+    """
+    Resolve the model name for the OpenAI *official* API only.
+
+    Never use HuggingFace Hub IDs (Qwen/..., meta-llama/...) from MODEL_NAME
+    for OpenAI — that returns 400 invalid model ID. Use OPENAI_MODEL_NAME or
+    the default, or a plain MODEL_NAME like gpt-4o-mini (no org/model slash).
+    """
+    explicit = _env("OPENAI_MODEL_NAME")
+    if explicit:
+        return explicit
+    g = _global_model_name()
+    if g and not _looks_like_huggingface_hub_model(g):
+        return g
+    if g and _looks_like_huggingface_hub_model(g):
+        logger.info(
+            "OpenAI: MODEL_NAME=%r looks like a HuggingFace Hub id; using %s for OpenAI API. "
+            "Set OPENAI_MODEL_NAME (e.g. gpt-4o-mini) if you use OpenAI as fallback.",
+            g,
+            DEFAULT_OPENAI_MODEL,
+        )
+    return DEFAULT_OPENAI_MODEL
+
+
 def _first_env(*names: str) -> str | None:
     for name in names:
         value = _env(name)
@@ -96,7 +133,7 @@ def _build_openai_provider() -> ProviderConfig | None:
     if not base_url and legacy_base_url and not _env("API_KEY") and not _env("HF_TOKEN"):
         base_url = legacy_base_url
 
-    model_name = _env("OPENAI_MODEL_NAME") or _global_model_name() or DEFAULT_OPENAI_MODEL
+    model_name = _openai_model_name()
     return ProviderConfig(
         name="openai",
         api_key=api_key,
@@ -339,6 +376,9 @@ class ProviderCircuitBreaker:
             # JSON mode for HF, but if a provider still reports this, fall back
             # without permanently disabling the HF route.
             return message
+        # Only disable the provider for likely-persistent failures (network, auth, quota).
+        # Do NOT disable for: wrong model name, bad JSON from model, invalid request body — those
+        # are often fixable config issues and would block the whole session after one bad call.
         hard_fail_markers = (
             "apiconnectionerror",
             "connection error",
@@ -348,15 +388,22 @@ class ProviderCircuitBreaker:
             "timeout",
             "insufficient_quota",
             "rate limit",
+            "401",
+            "403",
             "unauthorized",
-            "authentication",
             "forbidden",
-            "invalid_request_error",
-            "unsupported_value",
-            "model_not_found",
-            "does not exist",
             "winerror 10013",
         )
+        soft_fail_markers = (
+            "jsondecodeerror",
+            "invalid model",
+            "model_not_found",
+            "invalid_request_error",
+            "does not exist",
+            "unsupported_value",
+        )
+        if any(s in lowered for s in soft_fail_markers):
+            return message
         if any(marker in lowered for marker in hard_fail_markers):
             cls.disable(provider_name, message)
         return message

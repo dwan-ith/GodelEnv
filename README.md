@@ -112,12 +112,20 @@ set OPENAI_API_KEY=...
 set OPENAI_MODEL_NAME=gpt-4o-mini
 ```
 
-**HF Spaces Secrets** - These work automatically without renaming:
+**HF Spaces Secrets** — These work automatically without renaming:
 ```bash
 HF_TOKEN=...
 API_BASE_URL=https://router.huggingface.co/v1
 MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
 ```
+
+**Important:** `MODEL_NAME` is used for the **Hugging Face** router (inference) only. It must **not** be a model ID for OpenAI. If you also set `OPENAI_API_KEY` as a fallback, set a separate **OpenAI** model id, for example:
+```bash
+OPENAI_MODEL_NAME=gpt-4o-mini
+```
+If you omit `OPENAI_MODEL_NAME`, a Hub-style `MODEL_NAME` (e.g. `Qwen/...`) is **not** sent to the OpenAI API (that caused `400 invalid model ID`). The OpenAI path then defaults to `gpt-4o-mini`.
+
+**Security:** Do not put `OPENAI_API_KEY` in **public** Space variables; use **Secrets** so the key is not visible to visitors.
 
 **Quick Local Setup with Ollama**:
 ```bash
