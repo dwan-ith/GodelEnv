@@ -130,6 +130,7 @@ async def provider_test() -> dict:
     Returns detailed diagnostics about what succeeded/failed.
     """
     from godel_engine.provider_runtime import load_provider_configs
+    from godel_engine.llm_json import parse_llm_json_object
     from openai import AsyncOpenAI
     import asyncio
 
@@ -190,3 +191,62 @@ async def provider_test() -> dict:
         "env_presence": describe_provider_environment(),
         "test_results": results,
     }
+
+
+@router.get("/provider-test-full")
+async def provider_test_full() -> dict:
+    """
+    Test LLM with a realistic JSON prompt to see raw output.
+    """
+    from godel_engine.provider_runtime import load_provider_configs
+    from godel_engine.llm_json import parse_llm_json_object
+    from openai import AsyncOpenAI
+    import asyncio
+    import json
+
+    configs = load_provider_configs()
+    hf_config = next((c for c in configs if c.name == 'huggingface'), None)
+    
+    if not hf_config or not hf_config.api_key:
+        return {"error": "No HuggingFace provider configured"}
+
+    client = AsyncOpenAI(
+        api_key=hf_config.api_key,
+        base_url=hf_config.base_url,
+    )
+
+    prompt = '''You are an AI agent. Return raw JSON (no markdown).
+{"solution": "your answer", "edit_type": "rewrite", "strategy_note": "explanation"}'''
+
+    try:
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=hf_config.model_name,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "What is 2+2?"},
+                ],
+                max_tokens=500,
+            ),
+            timeout=60,
+        )
+        content = response.choices[0].message.content or ""
+        
+        # Try parsing
+        parse_result = None
+        parse_error = None
+        try:
+            parse_result = parse_llm_json_object(content)
+        except json.JSONDecodeError as e:
+            parse_error = str(e)
+
+        return {
+            "raw_content": content,
+            "content_length": len(content),
+            "parse_result": parse_result,
+            "parse_error": parse_error,
+        }
+    except Exception as e:
+        return {
+            "error": f"{type(e).__name__}: {str(e)}",
+        }
