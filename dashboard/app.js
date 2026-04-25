@@ -213,11 +213,10 @@ document.addEventListener("DOMContentLoaded", () => {
                     const sign = patchDecision.improvement > 0 ? "+" : "";
                     
                     let html = `
-                    <div class="utility-board">
-                        <div class="verdict-banner ${patchDecision.accepted ? 'accepted' : 'rejected'}">
-                            GOVERNOR VERDICT: ${verdict}
+                    <div class="utility-board" style="padding: 1rem;">
+                        <div style="font-weight: bold; margin-bottom: 1rem; color: ${patchDecision.accepted ? '#00ff88' : '#ff3e3e'};">
+                            VERDICT: ${verdict}
                         </div>
-                        
                         <div class="utility-scores-grid">
                             <div class="utility-score-card">
                                 <div class="label">PARENT UTILITY</div>

@@ -101,28 +101,31 @@
 
     <section class="panel meta-panel" style="margin-top: 1.5rem;">
         <div class="panel-tag">SELF-IMPROVEMENT</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem;">
-            <div class="strategy-preview">
-                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">PARENT STRATEGY</div>
-                <pre id="current-strategy" class="solution-text mini"
-                    style="min-height: 150px; max-height: 200px; overflow-y: auto;">Awaiting strategy...</pre>
-            </div>
-            <div class="child-strategy-preview">
-                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">CHILD STRATEGY (PROPOSED)</div>
-                <pre id="child-strategy" class="solution-text mini"
-                    style="min-height: 150px; max-height: 200px; overflow-y: auto;">Awaiting patch...</pre>
-            </div>
-            <div class="utility-comparison-section">
-                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">UTILITY COMPARISON</div>
-                <div id="utility-comparison" style="height: 100%;">
-                    <div class="empty">No patch evaluated yet.</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="strategy-preview">
+                    <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">PARENT STRATEGY</div>
+                    <pre id="current-strategy" class="solution-text mini" style="min-height: 100px; max-height: 150px; overflow-y: auto;">Awaiting strategy...</pre>
+                </div>
+                <div class="child-strategy-preview">
+                    <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">CHILD STRATEGY (PROPOSED)</div>
+                    <pre id="child-strategy" class="solution-text mini" style="min-height: 100px; max-height: 150px; overflow-y: auto;">Awaiting patch...</pre>
                 </div>
             </div>
-        </div>
-        <div class="failures-section" style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
-            <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">RECENT FAILURES / CHALLENGES</div>
-            <div id="failure-list" class="failure-container" style="max-height: 120px;">
-                <div class="empty">No failures recorded.</div>
+            
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="utility-comparison-section">
+                    <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">UTILITY COMPARISON</div>
+                    <div id="utility-comparison" class="solution-text mini" style="min-height: 100px; max-height: 150px; overflow-y: auto; background: #0a0a0a;">
+                        <div class="empty">No patch evaluated yet.</div>
+                    </div>
+                </div>
+                <div class="failures-section">
+                    <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">RECENT FAILURES / CHALLENGES</div>
+                    <div id="failure-list" class="failure-container" style="max-height: 150px;">
+                        <div class="empty">No failures recorded.</div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
