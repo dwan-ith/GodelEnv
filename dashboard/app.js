@@ -209,34 +209,42 @@ document.addEventListener("DOMContentLoaded", () => {
                 
                 // Render utility comparison
                 if (utilityComparison) {
+                    const deltaClass = patchDecision.improvement > 0 ? "delta-pos" : (patchDecision.improvement < 0 ? "delta-neg" : "delta-neu");
+                    const sign = patchDecision.improvement > 0 ? "+" : "";
+                    
                     let html = `
-                        <div style="margin-bottom: 0.5rem; font-weight: bold; color: ${patchDecision.accepted ? '#00ff88' : '#ff3e3e'};">
-                            VERDICT: ${verdict}
+                    <div class="utility-board">
+                        <div class="verdict-banner ${patchDecision.accepted ? 'accepted' : 'rejected'}">
+                            GOVERNOR VERDICT: ${verdict}
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.5rem;">
-                            <div>
-                                <div style="color: var(--text-dim); font-size: 0.7rem;">PARENT UTILITY</div>
-                                <div style="font-size: 1.2rem;">${patchDecision.parent_utility.toFixed(3)}</div>
+                        
+                        <div class="utility-scores-grid">
+                            <div class="utility-score-card">
+                                <div class="label">PARENT UTILITY</div>
+                                <div class="value">${patchDecision.parent_utility.toFixed(3)}</div>
                             </div>
-                            <div>
-                                <div style="color: var(--text-dim); font-size: 0.7rem;">CHILD UTILITY</div>
-                                <div style="font-size: 1.2rem; color: ${patchDecision.improvement > 0 ? '#00ff88' : 'inherit'};">${patchDecision.child_utility.toFixed(3)}</div>
+                            <div class="utility-score-card">
+                                <div class="label">CHILD UTILITY</div>
+                                <div class="value">${patchDecision.child_utility.toFixed(3)}</div>
                             </div>
                         </div>
-                        <div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 0.5rem;">
-                            IMPROVEMENT: <span style="color: ${patchDecision.improvement > 0 ? '#00ff88' : (patchDecision.improvement < 0 ? '#ff3e3e' : 'inherit')};">${(patchDecision.improvement > 0 ? '+' : '')}${patchDecision.improvement.toFixed(3)}</span>
+                        
+                        <div class="utility-delta">
+                            NET IMPROVEMENT: <span class="${deltaClass}">${sign}${patchDecision.improvement.toFixed(3)}</span>
                         </div>
                     `;
+                    
                     if (patchDecision.rejection_reasons?.length > 0) {
                         html += `
-                            <div style="margin-top: 0.5rem; border-top: 1px solid #333; padding-top: 0.5rem;">
-                                <div style="color: #ff3e3e; font-size: 0.7rem; margin-bottom: 0.2rem;">REJECTION REASONS:</div>
-                                <ul style="color: #ff3e3e; padding-left: 1rem; font-size: 0.7rem;">
+                            <div class="rejection-reasons-box">
+                                <div class="title">REJECTION REASONS:</div>
+                                <ul>
                                     ${patchDecision.rejection_reasons.map(r => `<li>${r}</li>`).join('')}
                                 </ul>
                             </div>
                         `;
                     }
+                    html += `</div>`;
                     utilityComparison.innerHTML = html;
                 }
             }

@@ -267,3 +267,122 @@ body {
     font-style: italic;
 }
 
+/* Utility Comparison UI */
+.utility-board {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.verdict-banner {
+    padding: 0.6rem;
+    text-align: center;
+    font-weight: 800;
+    letter-spacing: 2px;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.verdict-banner.accepted {
+    background: rgba(0, 255, 136, 0.1);
+    color: #00ff88;
+    border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.verdict-banner.rejected {
+    background: rgba(255, 62, 62, 0.1);
+    color: #ff3e3e;
+    border: 1px solid rgba(255, 62, 62, 0.3);
+}
+
+.utility-scores-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.utility-score-card {
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    padding: 1rem;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.utility-score-card .label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+    letter-spacing: 1px;
+}
+
+.utility-score-card .value {
+    font-size: 1.6rem;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.utility-delta {
+    text-align: center;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+    color: var(--text-dim);
+}
+
+.utility-delta span {
+    font-weight: bold;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    margin-left: 0.5rem;
+}
+
+.delta-pos {
+    background: rgba(0, 255, 136, 0.1);
+    color: #00ff88;
+}
+
+.delta-neg {
+    background: rgba(255, 62, 62, 0.1);
+    color: #ff3e3e;
+}
+
+.delta-neu {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.rejection-reasons-box {
+    margin-top: auto;
+    border-top: 1px solid #1a1a1a;
+    padding-top: 1rem;
+}
+
+.rejection-reasons-box .title {
+    font-size: 0.7rem;
+    color: #ff3e3e;
+    margin-bottom: 0.5rem;
+    letter-spacing: 1px;
+}
+
+.rejection-reasons-box ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+.rejection-reasons-box li {
+    font-size: 0.75rem;
+    color: #ffaaaa;
+    position: relative;
+    padding-left: 1rem;
+    margin-bottom: 0.3rem;
+}
+
+.rejection-reasons-box li::before {
+    content: "!";
+    position: absolute;
+    left: 0;
+    color: #ff3e3e;
+}
