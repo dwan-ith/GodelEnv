@@ -21,10 +21,17 @@ body {
     font-family: var(--font-mono);
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
     padding: 1.5rem 2.5rem;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #222; border-radius: 10px; border: 1px solid #000; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
 
 /* Header - Modern Top Bar */
 .kernel-header {
@@ -90,6 +97,7 @@ body {
     gap: 1.5rem;
     flex-grow: 1;
     min-height: 0;
+    align-items: start;
 }
 
 .panel {
@@ -99,7 +107,6 @@ body {
     flex-direction: column;
     padding: 1.5rem;
     position: relative;
-    overflow-y: auto;
     overflow-x: hidden;
 }
 
@@ -121,6 +128,8 @@ body {
     flex-grow: 1;
     overflow-y: auto;
     font-size: 0.85rem;
+    max-height: 600px;
+    padding-right: 0.5rem;
 }
 
 .log-entry {
@@ -257,4 +266,47 @@ body {
     font-size: 0.75rem;
     color: var(--text-dim);
     font-style: italic;
+}
+
+/* Mode Indicator */
+.mode-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-color);
+    background: #0a0a0a;
+}
+
+.mode-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+}
+
+.mode-value {
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.mode-indicator.llm .mode-value {
+    color: #00ff88;
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+.mode-indicator.deterministic .mode-value {
+    color: #ffaa00;
+    text-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+}
+
+.mode-indicator.unknown .mode-value {
+    color: var(--text-dim);
+}
+
+.mode-indicator.error .mode-value {
+    color: #ff3e3e;
+    text-shadow: 0 0 10px rgba(255, 62, 62, 0.5);
 }
