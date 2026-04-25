@@ -387,6 +387,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const action = await requestAgentAction(currentObservation);
                 const stepResponse = await sendWs({ type: "step", data: action });
+                
+                // Include the action in the step response for UI rendering
+                stepResponse.data.action = action;
                 updateUiFromObservation(stepResponse.data);
 
                 await new Promise((resolve) => setTimeout(resolve, 300));

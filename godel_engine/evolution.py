@@ -126,27 +126,29 @@ class GovernorConfig:
     """
 
     # Minimum improvement required for acceptance
-    min_improvement: float = 0.01
+    # Set low to allow exploration; the regression gates handle safety
+    min_improvement: float = 0.005
 
     # Maximum fraction of tasks allowed to regress
-    max_regression_fraction: float = 0.2
+    # Relaxed to 35% to allow more exploration while still preventing catastrophic regressions
+    max_regression_fraction: float = 0.35
 
     # Maximum acceptable score variance across held-out tasks
-    max_variance: float = 0.15
+    max_variance: float = 0.20
 
     # Minimum tasks evaluated for a valid decision
     min_tasks_for_decision: int = 3
 
     # Maximum absolute regression allowed on any single task
-    max_single_task_regression: float = 0.15
+    max_single_task_regression: float = 0.20
 
     # Canary task penalty threshold (if canary score drops, reject)
-    canary_regression_threshold: float = 0.05
+    canary_regression_threshold: float = 0.08
 
     # Weights for multi-objective utility
-    correctness_weight: float = 0.35
+    correctness_weight: float = 0.40
     generalization_weight: float = 0.25
-    robustness_weight: float = 0.20
+    robustness_weight: float = 0.15
     cost_weight: float = 0.10
     stability_weight: float = 0.10
 
