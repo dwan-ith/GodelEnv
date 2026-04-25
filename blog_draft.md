@@ -40,8 +40,14 @@ To prevent pathological behavior, the environment's Governor implements strict a
 - Canary leakage detection (preventing the agent from memorizing test data).
 - Variance penalties and strategy length limits (preventing infinitely expanding, meaningless context).
 
-### 4. Hybrid Runtime
+### 4. Hybrid Runtime with Full Transparency
 Live LLM inference is inherently volatile. GodelEnv implements a hybrid runtime where API-backed LLM calls drive the primary evaluation logic, but the system gracefully falls back to deterministic grading heuristics if provider credentials fail or rate limits are hit. This ensures episodes do not crash mid-trajectory, maintaining training stability.
+
+**Critically, this fallback is now fully transparent:**
+- The dashboard shows a color-coded indicator (green for LLM, yellow for deterministic)
+- API endpoints report exactly which provider was used and why fallback occurred
+- Heuristic fallback patches are explicitly labeled and target specific weaknesses rather than returning hardcoded responses
+- A `GODEL_REQUIRE_LLM=1` mode can be enabled to error instead of falling back, ensuring deployed systems use actual LLM reasoning
 
 ## Making the Training Path Honest
 

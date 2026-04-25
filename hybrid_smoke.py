@@ -23,6 +23,7 @@ from godel_engine.environment import GodelEnvironment
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
     describe_provider_configs,
+    describe_provider_environment,
 )
 
 
@@ -59,6 +60,7 @@ async def run_smoke(require_llm: bool) -> dict:
             "strategy_eval": os.getenv("GODEL_STRATEGY_EVAL_MODE", "auto"),
         },
         "providers": describe_provider_configs(),
+        "env_presence": describe_provider_environment(),
         "agent_source": agent.last_source,
         "agent_provider": agent.last_provider,
         "agent_error": agent.last_error,

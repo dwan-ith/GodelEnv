@@ -1,7 +1,20 @@
 """
 Deterministic reference policy used for demos, baselines, and SFT warm starts.
+
+NOTE: This is a FALLBACK policy, not the primary path for recursive self-improvement.
+When LLM providers are available, AutoAgent generates novel strategy patches. This
+heuristic policy is used only when:
+1. No LLM providers are configured
+2. All configured providers fail
+3. Training requires deterministic reproducibility
+
+The heuristic patches are designed to be VARIED based on the current strategy state,
+not hardcoded. Each patch targets specific missing capabilities.
 """
 from __future__ import annotations
+
+import hashlib
+from typing import Sequence
 
 from godel_engine.models import EditType, GodelAction, StrategyPatch
 
@@ -20,6 +33,86 @@ def _strategy_flags(strategy_text: str | None) -> dict[str, bool]:
         "efficiency": any(token in text for token in ["efficient", "optimization", "complexity", "sqrt", "sieve"]),
         "safety": any(token in text for token in ["policy risk", "safety", "harm", "guardrail", "auditing"]),
     }
+
+
+CAPABILITY_ADDITIONS = {
+    "decompose": (
+        "DECOMPOSE: Break the problem into atomic claims, assumptions, and decision points before attempting a solution.",
+        "Added problem decomposition step",
+        "Decomposition helps identify hidden assumptions and ensures systematic coverage",
+    ),
+    "evidence": (
+        "EVIDENCE: For each major claim, cite supporting evidence or note gaps in knowledge.",
+        "Added explicit evidence gathering",
+        "Evidence grounding reduces hallucination and improves factual accuracy",
+    ),
+    "counterargument": (
+        "COUNTER: Generate at least one counterargument, edge case, or alternative hypothesis for each conclusion.",
+        "Added counterargument generation",
+        "Considering alternatives reduces overconfidence and catches blind spots",
+    ),
+    "uncertainty": (
+        "UNCERTAINTY: Explicitly mark confidence levels (high/medium/low) for claims with different evidence strength.",
+        "Added uncertainty quantification",
+        "Explicit uncertainty helps downstream consumers calibrate trust appropriately",
+    ),
+    "verify": (
+        "VERIFY: Run a self-check before finalizing - does the answer address the actual question? Are there logical gaps?",
+        "Added self-verification step",
+        "Verification catches errors before they propagate to the final output",
+    ),
+    "reflect": (
+        "REFLECT: After solving, note what worked well and what could improve for similar future problems.",
+        "Added reflection/meta-learning step",
+        "Reflection enables strategy improvement over time",
+    ),
+    "examples": (
+        "EXAMPLES: Include at least one concrete worked example or demonstration when explaining concepts.",
+        "Added worked example requirement",
+        "Examples ground abstract concepts and verify understanding",
+    ),
+    "efficiency": (
+        "EFFICIENCY: For computational tasks, analyze time/space complexity and prefer asymptotically optimal solutions.",
+        "Added efficiency/complexity analysis",
+        "Efficiency awareness prevents naive O(n^2) or worse solutions",
+    ),
+    "safety": (
+        "SAFETY: Check for policy risks, potential harms, or safety concerns before finalizing responses.",
+        "Added safety/policy check",
+        "Safety awareness prevents harmful outputs and policy violations",
+    ),
+}
+
+
+def _select_patch_focus(
+    flags: dict[str, bool],
+    recent_failures: Sequence[str] | None = None,
+    downstream_scores: dict[str, float] | None = None,
+) -> str:
+    """Select which capability to add based on current weaknesses."""
+    failures_text = " ".join(recent_failures or []).lower()
+    scores = downstream_scores or {}
+
+    missing = [cap for cap, present in flags.items() if not present]
+    if not missing:
+        missing = list(CAPABILITY_ADDITIONS.keys())
+
+    priority_order = []
+
+    if "factual" in failures_text or scores.get("factual_qa", 1.0) < 0.5:
+        priority_order.extend(["evidence", "verify", "uncertainty"])
+    if "code" in failures_text or scores.get("code_improvement", 1.0) < 0.5:
+        priority_order.extend(["efficiency", "verify", "decompose"])
+    if "reasoning" in failures_text or scores.get("reasoning", 1.0) < 0.5:
+        priority_order.extend(["decompose", "counterargument", "examples"])
+    if "alignment" in failures_text or scores.get("alignment_qa", 1.0) < 0.5:
+        priority_order.extend(["safety", "counterargument", "uncertainty"])
+
+    for cap in priority_order:
+        if cap in missing:
+            return cap
+
+    return missing[0] if missing else "verify"
 
 
 def build_heuristic_solution(task_prompt: str, task_type: str, strategy_text: str | None = None) -> str:
@@ -248,7 +341,13 @@ def build_heuristic_solution(task_prompt: str, task_type: str, strategy_text: st
     return task_prompt
 
 
-def build_heuristic_action(task_prompt: str, task_type: str, strategy_text: str | None = None) -> GodelAction:
+def build_heuristic_action(
+    task_prompt: str,
+    task_type: str,
+    strategy_text: str | None = None,
+    recent_failures: Sequence[str] | None = None,
+    downstream_scores: dict[str, float] | None = None,
+) -> GodelAction:
     solution = build_heuristic_solution(task_prompt, task_type, strategy_text=strategy_text)
     edit_type = (
         EditType.FIX_ERRORS
@@ -256,51 +355,93 @@ def build_heuristic_action(task_prompt: str, task_type: str, strategy_text: str 
         else EditType.RESTRUCTURE
     )
 
-    # GodelEnv 2.0: for strategy tasks, also generate a StrategyPatch
     patch = None
     if task_type == "strategy_optimization":
-        flags = _strategy_flags(strategy_text)
-        patch = StrategyPatch(
-            improved_strategy=(
-                "1. Decompose the prompt into claims, assumptions, and decision points.\n"
-                "2. Draft an answer with explicit evidence and uncertainty markers.\n"
-                "3. Generate at least one counterargument, edge case, or alternative hypothesis.\n"
-                "4. Add a concrete worked example or demonstration when the task is conceptual.\n"
-                "5. For code or optimization tasks, check correctness first, then improve time complexity and resource use.\n"
-                "6. Run a self-check for factual accuracy, missing counterarguments, and policy risks or safety concerns.\n"
-                "7. Revise the strategy itself by recording what the self-check found.\n"
-                "8. Produce the final answer only after verification passes.\n"
-                "9. Compare the result against recent failures and update the template if a weakness repeats."
-            ),
-            diff_description=(
-                "Added counterarguments, examples, optimization checks, safety checks, "
-                "explicit revision, and recurring-failure analysis."
-            ),
-            hypothesis=(
-                "A structured verify-then-revise loop with examples, complexity checks, "
-                "safety checks, and failure tracking should improve held-out performance "
-                "across factual, reasoning, alignment, and code tasks."
-            ),
-            target_weaknesses=[
-                weakness
-                for weakness, missing in [
-                    ("no decomposition", not flags["decompose"]),
-                    ("no explicit evidence gathering", not flags["evidence"]),
-                    ("no counterargument generation", not flags["counterargument"]),
-                    ("no worked examples", not flags["examples"]),
-                    ("no optimization check", not flags["efficiency"]),
-                    ("no safety check", not flags["safety"]),
-                    ("no self-verification", not flags["verify"]),
-                    ("no uncertainty tracking", not flags["uncertainty"]),
-                    ("no revision loop", not flags["reflect"]),
-                ]
-                if missing
-            ],
+        patch = build_heuristic_strategy_patch(
+            strategy_text=strategy_text,
+            recent_failures=recent_failures,
+            downstream_scores=downstream_scores,
         )
 
     return GodelAction(
         solution=solution,
         edit_type=edit_type,
-        strategy_note="Deterministic local fallback",
+        strategy_note="Deterministic fallback (LLM unavailable)",
         strategy_patch=patch,
+    )
+
+
+def build_heuristic_strategy_patch(
+    strategy_text: str | None = None,
+    recent_failures: Sequence[str] | None = None,
+    downstream_scores: dict[str, float] | None = None,
+) -> StrategyPatch:
+    """
+    Generate a VARIED StrategyPatch based on current strategy weaknesses.
+
+    Unlike hardcoded patches, this analyzes what the current strategy is missing
+    and proposes a targeted improvement. This is still deterministic (for
+    reproducibility) but not static.
+    """
+    flags = _strategy_flags(strategy_text)
+    focus = _select_patch_focus(flags, recent_failures, downstream_scores)
+
+    addition_text, diff_desc, hypothesis = CAPABILITY_ADDITIONS.get(
+        focus,
+        (
+            "VERIFY: Run a self-check before finalizing.",
+            "Added verification step",
+            "Verification catches errors before they propagate",
+        ),
+    )
+
+    current_steps = []
+    step_num = 1
+
+    if strategy_text:
+        lines = [line.strip() for line in strategy_text.split("\n") if line.strip()]
+        for line in lines:
+            if line and not line.startswith("#") and not line.upper().startswith("REASONING STRATEGY"):
+                current_steps.append(f"{step_num}. {line.lstrip('0123456789.-) ')}")
+                step_num += 1
+
+    if not current_steps:
+        current_steps = [
+            "1. Read and understand the task requirements.",
+            "2. Draft an initial solution.",
+            "3. Review and refine the solution.",
+        ]
+        step_num = 4
+
+    current_steps.append(f"{step_num}. {addition_text}")
+
+    improved_strategy = "REASONING STRATEGY (heuristic patch)\n\n" + "\n".join(current_steps)
+
+    target_weaknesses = [
+        weakness
+        for weakness, missing in [
+            ("no decomposition", not flags["decompose"]),
+            ("no explicit evidence gathering", not flags["evidence"]),
+            ("no counterargument generation", not flags["counterargument"]),
+            ("no worked examples", not flags["examples"]),
+            ("no optimization check", not flags["efficiency"]),
+            ("no safety check", not flags["safety"]),
+            ("no self-verification", not flags["verify"]),
+            ("no uncertainty tracking", not flags["uncertainty"]),
+            ("no revision loop", not flags["reflect"]),
+        ]
+        if missing
+    ]
+
+    if recent_failures:
+        target_weaknesses.extend(
+            f"recent failure: {f[:50]}..." if len(f) > 50 else f"recent failure: {f}"
+            for f in list(recent_failures)[-2:]
+        )
+
+    return StrategyPatch(
+        improved_strategy=improved_strategy,
+        diff_description=f"[HEURISTIC] {diff_desc}",
+        hypothesis=f"[HEURISTIC] {hypothesis}",
+        target_weaknesses=target_weaknesses[:5],
     )

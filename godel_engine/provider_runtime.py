@@ -11,7 +11,7 @@ load_dotenv(override=False)
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_ROUTER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_HF_ROUTER_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_PROVIDER_ORDER = ("custom", "openai", "huggingface")
+DEFAULT_PROVIDER_ORDER = ("huggingface", "custom", "openai")
 
 
 @dataclass(frozen=True)
@@ -38,8 +38,16 @@ def _global_model_name() -> str | None:
     return _env("MODEL_NAME")
 
 
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = _env(name)
+        if value:
+            return value
+    return None
+
+
 def _build_custom_provider() -> ProviderConfig | None:
-    api_key = _env("API_KEY")
+    api_key = _env("API_KEY") or _env("CUSTOM_API_KEY")
     base_url = _env("CUSTOM_API_BASE_URL") or _legacy_base_url()
     if not api_key or not base_url:
         return None
@@ -72,18 +80,29 @@ def _build_openai_provider() -> ProviderConfig | None:
 
 
 def _build_huggingface_provider() -> ProviderConfig | None:
-    api_key = _env("HF_TOKEN")
+    api_key = _first_env(
+        "HF_TOKEN",
+        "HF_API_KEY",
+        "HUGGINGFACE_API_KEY",
+        "HUGGINGFACE_TOKEN",
+        "HUGGINGFACEHUB_API_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "HF_ACCESS_TOKEN",
+    )
     if not api_key:
         return None
 
-    legacy_base_url = _legacy_base_url()
-    base_url = _env("HF_API_BASE_URL")
-    if not base_url and legacy_base_url and "huggingface.co" in legacy_base_url.lower():
-        base_url = legacy_base_url
-    if not base_url:
-        base_url = DEFAULT_HF_ROUTER_BASE_URL
+    # In HF Spaces it is common to configure just HF_TOKEN + API_BASE_URL +
+    # MODEL_NAME as secrets. If HF_TOKEN is present, treat API_BASE_URL as the
+    # HF-compatible endpoint unless HF_API_BASE_URL is explicitly set.
+    base_url = _env("HF_API_BASE_URL") or _legacy_base_url() or DEFAULT_HF_ROUTER_BASE_URL
 
-    model_name = _env("HF_MODEL_NAME") or _global_model_name() or DEFAULT_ROUTER_MODEL
+    model_name = (
+        _env("HF_MODEL_NAME")
+        or _env("HF_INFERENCE_MODEL")
+        or _global_model_name()
+        or DEFAULT_ROUTER_MODEL
+    )
     return ProviderConfig(
         name="huggingface",
         api_key=api_key,
@@ -151,6 +170,21 @@ def describe_provider_configs() -> list[dict[str, str | bool | None]]:
     ]
 
 
+def describe_provider_environment() -> dict[str, bool]:
+    """Return non-secret presence checks for supported provider env vars."""
+    return {
+        "HF_TOKEN": bool(_env("HF_TOKEN")),
+        "HF_API_KEY": bool(_env("HF_API_KEY")),
+        "HUGGINGFACE_API_KEY": bool(_env("HUGGINGFACE_API_KEY")),
+        "HUGGINGFACE_TOKEN": bool(_env("HUGGINGFACE_TOKEN")),
+        "HUGGINGFACEHUB_API_TOKEN": bool(_env("HUGGINGFACEHUB_API_TOKEN")),
+        "HUGGING_FACE_HUB_TOKEN": bool(_env("HUGGING_FACE_HUB_TOKEN")),
+        "HF_ACCESS_TOKEN": bool(_env("HF_ACCESS_TOKEN")),
+        "API_KEY": bool(_env("API_KEY")),
+        "OPENAI_API_KEY": bool(_env("OPENAI_API_KEY")),
+    }
+
+
 class ProviderCircuitBreaker:
     """Disable repeated retries for only the providers that actually failed."""
 
@@ -185,6 +219,15 @@ class ProviderCircuitBreaker:
     def record_failure(cls, provider_name: str, exc: Exception) -> str:
         message = f"{type(exc).__name__}: {exc}"
         lowered = message.lower()
+        if provider_name == "huggingface" and (
+            "unsupported parameter" in lowered
+            or "response_format" in lowered
+            or "json_object" in lowered
+        ):
+            # HF Router models vary in structured-output support. Callers avoid
+            # JSON mode for HF, but if a provider still reports this, fall back
+            # without permanently disabling the HF route.
+            return message
         hard_fail_markers = (
             "apiconnectionerror",
             "connection error",
@@ -197,7 +240,6 @@ class ProviderCircuitBreaker:
             "unauthorized",
             "authentication",
             "forbidden",
-            "unsupported parameter",
             "invalid_request_error",
             "unsupported_value",
             "model_not_found",

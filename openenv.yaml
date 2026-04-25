@@ -183,7 +183,7 @@ inference:
   default_env_modes:
     grading: GODEL_GRADING_MODE=auto
     strategy_eval: GODEL_STRATEGY_EVAL_MODE=auto
-    provider_order: GODEL_PROVIDER_ORDER=openai,custom,huggingface
+    provider_order: GODEL_PROVIDER_ORDER=huggingface,custom,openai
   openai:
     enabled_by_env:
       - OPENAI_API_KEY
@@ -200,6 +200,12 @@ inference:
   huggingface_router:
     enabled_by_env:
       - HF_TOKEN
+      - HF_API_KEY
+      - HUGGINGFACE_API_KEY
+      - HUGGINGFACE_TOKEN
+      - HUGGINGFACEHUB_API_TOKEN
+      - HUGGING_FACE_HUB_TOKEN
+      - HF_ACCESS_TOKEN
     base_url_env: HF_API_BASE_URL
     recommended_base_url: https://router.huggingface.co/v1
     token_env: HF_TOKEN

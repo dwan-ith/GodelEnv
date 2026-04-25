@@ -11,7 +11,7 @@ Evaluation modes:
   back to deterministic generation.
 
 For Hugging Face credits, set:
-    HF_TOKEN=...
+    HF_TOKEN=...  # HF_API_KEY / HUGGINGFACEHUB_API_TOKEN also work
     API_BASE_URL=https://router.huggingface.co/v1
     MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
     GODEL_STRATEGY_EVAL_MODE=auto
@@ -207,13 +207,16 @@ class StrategyEvaluator:
 
         system_prompt = (
             "You are solving a held-out benchmark task inside GodelEnv.\n"
-            "Follow the given reasoning strategy, but do not mention the evaluator, rubrics, hidden tests, "
-            "or internal scoring functions. Return only the final solution text."
+            "IMPORTANT: Follow the given reasoning strategy step-by-step. Each step in the strategy "
+            "should be visible in your solution process.\n"
+            "Do not mention the evaluator, rubrics, hidden tests, or internal scoring functions.\n"
+            "Return only the final solution text, showing how you applied the strategy."
         )
         user_prompt = (
-            f"REASONING STRATEGY:\n{strategy_text}\n\n"
+            f"REASONING STRATEGY TO FOLLOW:\n{strategy_text}\n\n"
             f"TASK TYPE: {task_type}\n"
             f"TASK:\n{task_prompt}\n\n"
+            "Apply the reasoning strategy above to solve this task. Show your work.\n\n"
             "FINAL SOLUTION:"
         )
 

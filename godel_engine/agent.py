@@ -23,6 +23,17 @@ load_dotenv(override=False)
 logger = logging.getLogger("godel_env.agent")
 
 
+def _extract_json_blob(text: str) -> str | None:
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        return stripped
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        return stripped[start : end + 1]
+    return None
+
+
 class AutoAgent:
     """LLM-backed agent with a deterministic local fallback."""
 
@@ -69,6 +80,8 @@ class AutoAgent:
                 task_prompt,
                 task_type,
                 strategy_text=strategy_text,
+                recent_failures=recent_failures,
+                downstream_scores=downstream_scores,
             )
 
         rubric_text = "\n".join(f"- {name}: {desc}" for name, desc in rubrics.items())
@@ -86,30 +99,53 @@ class AutoAgent:
             )
         strategy_block = "\n\n".join(strategy_context)
 
+        prefer_patch = task_type == "strategy_optimization"
+
+        weakness_hint = ""
+        if recent_failures:
+            weakness_hint = f"\nRECENT FAILURES TO ADDRESS:\n" + "\n".join(f"- {f}" for f in recent_failures[-3:])
+
+        score_hint = ""
+        if downstream_scores:
+            weak_areas = [k for k, v in downstream_scores.items() if v < 0.5]
+            if weak_areas:
+                score_hint = f"\nWEAK TASK AREAS (score < 0.5): {', '.join(weak_areas)}"
+
         system_prompt = f"""You are a self-improving AI agent inside Godel Env.
-Improve the CURRENT SOLUTION to score better on these rubrics:
+Your goal is recursive self-improvement: propose changes to your own reasoning strategy that will improve performance on held-out tasks.
+
+RUBRICS FOR THIS TASK:
 {rubric_text}
 
-{strategy_block}
+{strategy_block}{weakness_hint}{score_hint}
 
-Return raw JSON.
-For direct answer improvement use:
+IMPORTANT INSTRUCTIONS:
+1. Analyze the CURRENT STRATEGY carefully. What is it missing? What could be improved?
+2. If proposing a strategy patch, make it SPECIFIC and TARGETED to address identified weaknesses.
+3. Do NOT propose generic improvements. Each patch should have a clear hypothesis about WHY it will help.
+4. The strategy will be evaluated on held-out tasks, so improvements must generalize.
+
+Return raw JSON (no markdown code blocks).
+
+For direct answer improvement:
 {{
-  "solution": "full improved solution",
+  "solution": "your improved solution",
   "edit_type": "rewrite",
-  "strategy_note": "short explanation"
+  "strategy_note": "brief explanation"
 }}
 
-For recursive self-improvement you may also include:
+For recursive self-improvement (PREFERRED for strategy_optimization tasks):
 {{
-  "solution": "worked downstream answer or revised draft",
+  "solution": "a demonstration of the improved strategy on this task",
   "edit_type": "rewrite",
-  "strategy_note": "short explanation",
-  "improved_strategy": "full revised strategy text",
-  "diff_description": "what changed",
-  "hypothesis": "why it should help",
-  "target_weaknesses": ["weakness 1", "weakness 2"]
-}}"""
+  "strategy_note": "what this patch addresses",
+  "improved_strategy": "THE COMPLETE REVISED STRATEGY TEXT - be specific about reasoning steps",
+  "diff_description": "what exactly changed and why",
+  "hypothesis": "testable prediction about why this will improve held-out performance",
+  "target_weaknesses": ["specific weakness 1", "specific weakness 2"]
+}}
+
+{"CRITICAL: This is a strategy_optimization episode. You MUST propose a StrategyPatch with improved_strategy. Analyze the current strategy, identify a specific weakness, and propose a targeted improvement. Generic patches will be penalized." if prefer_patch else ""}"""
         user_prompt = f"TASK PROMPT:\n{task_prompt}\n\nCURRENT SOLUTION:\n{current_solution}"
 
         errors: list[str] = []
@@ -129,14 +165,19 @@ For recursive self-improvement you may also include:
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            response_format={"type": "json_object"},
                             max_tokens=2048,
+                            **(
+                                {"response_format": {"type": "json_object"}}
+                                if provider_name == "openai"
+                                else {}
+                            ),
                         ),
                         timeout=self.timeout,
                     )
 
                 content = (response.choices[0].message.content or "").strip()
-                data = json.loads(content)
+                blob = _extract_json_blob(content)
+                data = json.loads(blob or content)
                 patch = None
                 if "improved_strategy" in data:
                     patch = StrategyPatch(
@@ -172,6 +213,8 @@ For recursive self-improvement you may also include:
             task_prompt,
             task_type,
             strategy_text=strategy_text,
+            recent_failures=recent_failures,
+            downstream_scores=downstream_scores,
         )
 
     def _parse_edit_type(self, value: str) -> EditType:

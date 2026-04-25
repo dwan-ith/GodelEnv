@@ -126,8 +126,12 @@ class AgentGrader:
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            response_format={"type": "json_object"},
                             max_tokens=1200,
+                            **(
+                                {"response_format": {"type": "json_object"}}
+                                if provider_name == "openai"
+                                else {}
+                            ),
                         ),
                         timeout=self.timeout,
                     )
