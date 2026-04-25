@@ -16,7 +16,7 @@ from typing import Any
 from openenv.core.env_server.types import Action, Observation, State
 from pydantic import Field
 
-from godel_engine.models import StrategyPatch
+from godel_engine.models import AgentChallengeProposal, StrategyPatch
 
 
 class GodelOpenEnvAction(Action):
@@ -31,6 +31,10 @@ class GodelOpenEnvAction(Action):
     strategy_patch: StrategyPatch | dict[str, Any] | None = Field(
         default=None,
         description="Optional recursive self-improvement patch to evaluate on held-out tasks.",
+    )
+    agent_challenge: AgentChallengeProposal | dict[str, Any] | None = Field(
+        default=None,
+        description="Optional new benchmark item (validated) for future held-out eval mixing.",
     )
 
 
@@ -58,6 +62,8 @@ class GodelOpenEnvObservation(Observation):
     downstream_scores: dict[str, float] = Field(default_factory=dict)
     patch_history: list[dict[str, Any]] = Field(default_factory=list)
     budget_remaining: int = 0
+    agent_challenges_queued: int = 0
+    curriculum_level: str = "easy"
     reward_breakdown: dict[str, Any] = Field(default_factory=dict)
     patch_decision: dict[str, Any] | None = None
 

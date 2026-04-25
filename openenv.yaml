@@ -40,6 +40,15 @@ actions:
           diff_description: { type: string }
           hypothesis: { type: string }
           target_weaknesses: { type: array, items: { type: string } }
+      agent_challenge:
+        type: object
+        description: >
+          Optional agent-authored challenge (allowlisted task family) stored in
+          a pool; may be mixed into future held-out strategy eval. Set env
+          GODEL_AGENT_CHALLENGES=0 to disable.
+        properties:
+          task_type: { type: string, enum: [factual_qa] }
+          prompt: { type: string }
 
 observations:
   schema:
@@ -72,6 +81,8 @@ observations:
       downstream_scores: { type: object, additionalProperties: { type: number } }
       patch_history: { type: array, items: { type: object } }
       budget_remaining: { type: integer }
+      agent_challenges_queued: { type: integer }
+      curriculum_level: { type: string }
 
 reward:
   description: >

@@ -12,7 +12,12 @@ from openai import AsyncOpenAI
 
 from godel_engine.heuristic_policy import build_heuristic_action
 from godel_engine.llm_json import parse_llm_json_object
-from godel_engine.models import EditType, GodelAction, StrategyPatch
+from godel_engine.models import (
+    AgentChallengeProposal,
+    EditType,
+    GodelAction,
+    StrategyPatch,
+)
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
     load_provider_configs,
@@ -131,8 +136,11 @@ For recursive self-improvement (PREFERRED for strategy_optimization tasks):
   "improved_strategy": "THE COMPLETE REVISED STRATEGY TEXT - be specific about reasoning steps",
   "diff_description": "what exactly changed and why",
   "hypothesis": "testable prediction about why this will improve held-out performance",
-  "target_weaknesses": ["specific weakness 1", "specific weakness 2"]
+  "target_weaknesses": ["specific weakness 1", "specific weakness 2"],
+  "agent_challenge": null
 }}
+
+Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "a verifiable, ≥20 char question to stress-test the strategy in future held-out eval"}}. Omit or use null to skip.
 
 {"CRITICAL: This is a strategy_optimization episode. You MUST propose a StrategyPatch with improved_strategy. Analyze the current strategy, identify a specific weakness, and propose a targeted improvement. Generic patches will be penalized." if prefer_patch else ""}"""
         user_prompt = f"TASK PROMPT:\n{task_prompt}\n\nCURRENT SOLUTION:\n{current_solution}"
@@ -177,6 +185,17 @@ For recursive self-improvement (PREFERRED for strategy_optimization tasks):
                         ],
                     )
 
+                agent_challenge: AgentChallengeProposal | None = None
+                ac_raw = data.get("agent_challenge")
+                if isinstance(ac_raw, dict):
+                    try:
+                        agent_challenge = AgentChallengeProposal(
+                            task_type=str(ac_raw.get("task_type", "")),
+                            prompt=str(ac_raw.get("prompt", "")),
+                        )
+                    except Exception:
+                        agent_challenge = None
+
                 self.last_source = f"llm:{provider_name}"
                 self.last_provider = provider_name
                 self.last_error = None
@@ -185,6 +204,7 @@ For recursive self-improvement (PREFERRED for strategy_optimization tasks):
                     edit_type=self._parse_edit_type(data.get("edit_type", "rewrite")),
                     strategy_note=str(data.get("strategy_note", "LLM improvement")),
                     strategy_patch=patch,
+                    agent_challenge=agent_challenge,
                 )
             except Exception as exc:
                 message = ProviderCircuitBreaker.record_failure(provider_name, exc)

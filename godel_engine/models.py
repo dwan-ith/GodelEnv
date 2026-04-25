@@ -42,6 +42,26 @@ class EditType(str, Enum):
 
 # ── Strategy Patch (the core self-improvement primitive) ─────────────
 
+class AgentChallengeProposal(BaseModel):
+    """
+    Optional challenge the agent authors to grow the evaluation surface.
+
+    Validated challenges are stored in a ChallengePool and may appear in
+    held-out strategy evaluation (mixed with fixed dataset cases). This
+    implements \"generate new challenges\" in a verifier-safe way: only
+    schema-valid, bounded prompts from an allowlisted task family are kept.
+    """
+
+    task_type: str = Field(
+        ...,
+        description="Task family for grading (e.g. factual_qa).",
+    )
+    prompt: str = Field(
+        ...,
+        description="The challenge text shown to the strategy at eval time.",
+    )
+
+
 class StrategyPatch(BaseModel):
     """
     A proposed mutation to the agent's reasoning strategy.
@@ -142,6 +162,10 @@ class GodelAction(BaseModel):
         default=None,
         description="If this is a strategy-level action, the proposed patch.",
     )
+    agent_challenge: Optional[AgentChallengeProposal] = Field(
+        default=None,
+        description="Optional: propose a new benchmark item (validated) for future held-out eval.",
+    )
 
 
 # ── Observation ───────────────────────────────────────────────────────
@@ -223,6 +247,14 @@ class GodelObservation(BaseModel):
     budget_remaining: int = Field(
         default=10,
         description="Steps remaining in this episode.",
+    )
+    agent_challenges_queued: int = Field(
+        default=0,
+        description="Count of validated agent-authored challenges in the pool.",
+    )
+    curriculum_level: str = Field(
+        default="easy",
+        description="Current curriculum difficulty band (adaptive / escalated).",
     )
 
 

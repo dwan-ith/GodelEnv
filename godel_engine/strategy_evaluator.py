@@ -11,10 +11,18 @@ Evaluation modes:
   back to deterministic generation.
 
 For Hugging Face credits, set:
-    HF_TOKEN=...  # HF_API_KEY / HUGGINGFACEHUB_API_TOKEN also work
-    API_BASE_URL=https://router.huggingface.co/v1
-    MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-    GODEL_STRATEGY_EVAL_MODE=auto
+  HF_TOKEN=...  # HF_API_KEY / HUGGINGFACEHUB_API_TOKEN also work
+  API_BASE_URL=https://router.huggingface.co/v1
+  MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+  GODEL_STRATEGY_EVAL_MODE=auto
+
+Neutral verification (not heuristic simulation):
+  GODEL_STRATEGY_EVAL_MODE=llm
+  GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0
+  (requires working OpenAI/HF API keys; otherwise evaluation raises)
+
+When ALLOW_HEURISTIC=1 (default), missing/failed API calls fall back to
+build_heuristic_solution — useful for CI, but not a neutral verifier.
 """
 
 from __future__ import annotations
@@ -30,12 +38,14 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
+from godel_engine.challenge_pool import synthetic_factual_reference
 from godel_engine.heuristic_policy import build_heuristic_solution
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
     describe_provider_configs,
     load_provider_configs,
 )
+from godel_engine.tasks.base import TaskInstance
 
 
 load_dotenv(override=False)
@@ -48,6 +58,8 @@ class EvaluationCase:
     task_id: str
     split: str
     is_canary: bool = False
+    # If set, bypass dataset sample and use this prompt (e.g. agent-authored challenge)
+    inline_prompt: str | None = None
 
 
 class StrategyEvaluator:
@@ -77,6 +89,10 @@ class StrategyEvaluator:
                     )
                 )
         self.last_error: str | None = None
+        # If False, never use build_heuristic_solution; require LLM (fail closed)
+        self.allow_heuristic = os.getenv(
+            "GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC", "1"
+        ).lower() in ("1", "true", "yes", "")
 
     def build_bundle(
         self,
@@ -84,12 +100,14 @@ class StrategyEvaluator:
         *,
         episode_id: str,
         current_task_id: str = "",
+        challenge_pool: Any | None = None,
     ) -> list[EvaluationCase]:
         """
         Build a deterministic-but-hidden held-out bundle.
 
         The agent sees task families and recent failures, but not the exact
         acceptance cases. Rotating by episode_id reduces hardcoded overfitting.
+        Optionally mix in one agent-authored challenge from ``challenge_pool``.
         """
         rng = random.Random(self._bundle_seed(episode_id))
         cases: list[EvaluationCase] = []
@@ -105,6 +123,26 @@ class StrategyEvaluator:
 
         rng.shuffle(cases)
         selected = cases[: self.max_cases]
+
+        # Optional: replace one held-out case with a pooled agent challenge (adaptive task surface)
+        if (
+            challenge_pool is not None
+            and os.getenv("GODEL_AGENT_CHALLENGES", "1").lower() not in ("0", "false", "no")
+        ):
+            extra = challenge_pool.sample_for_eval(rng)
+            if extra is not None and extra.task_type in tasks and extra.task_type == "factual_qa":
+                agent_case = EvaluationCase(
+                    task_type=extra.task_type,
+                    task_id=extra.id,
+                    split="agent_gen",
+                    is_canary=False,
+                    inline_prompt=extra.prompt,
+                )
+                heldout_idx = [i for i, c in enumerate(selected) if c.split == "heldout" and not c.is_canary]
+                if heldout_idx:
+                    selected[heldout_idx[-1]] = agent_case
+                elif len(selected) < self.max_cases:
+                    selected.append(agent_case)
 
         # Canary cases are normal public tasks, but their scoring is paired with
         # leak/keyword guards. A strategy mentioning evaluator internals should
@@ -127,20 +165,26 @@ class StrategyEvaluator:
         *,
         episode_id: str,
         current_task_id: str = "",
+        challenge_pool: Any | None = None,
     ) -> tuple[dict[str, float], dict[str, float], dict[str, Any]]:
         """Return (axis_scores, per_case_scores, diagnostics)."""
         cases = self.build_bundle(
             tasks,
             episode_id=episode_id,
             current_task_id=current_task_id,
+            challenge_pool=challenge_pool,
         )
 
         per_case_scores: dict[str, float] = {}
         family_scores: dict[str, list[float]] = {}
         diagnostics: dict[str, Any] = {
             "mode": self.mode,
+            "verifier": "heuristic_or_llm" if self.allow_heuristic else "llm_only",
+            "allow_heuristic": self.allow_heuristic,
             "providers": describe_provider_configs(),
             "cases": [],
+            "agent_challenges_mixed": 0,
+            "heuristic_solver_uses": 0,
         }
         source_counts: dict[str, int] = {}
 
@@ -149,7 +193,19 @@ class StrategyEvaluator:
             if not task_obj:
                 continue
             try:
-                instance = task_obj.sample(random.Random(self.seed), task_id=case.task_id)
+                if case.inline_prompt and case.task_type == "factual_qa":
+                    ref = dict(synthetic_factual_reference(case.inline_prompt))
+                    ref["id"] = case.task_id
+                    instance = TaskInstance(
+                        task_id=case.task_id,
+                        difficulty=task_obj.difficulty,
+                        prompt=case.inline_prompt,
+                        initial_solution=ref.get("initial_solution", ""),
+                        reference=ref,
+                    )
+                    diagnostics["agent_challenges_mixed"] += 1
+                else:
+                    instance = task_obj.sample(random.Random(self.seed), task_id=case.task_id)
                 solution, source = await self._solve_case(
                     task_prompt=instance.prompt,
                     task_type=case.task_type,
@@ -166,6 +222,8 @@ class StrategyEvaluator:
             per_case_scores[key] = score
             family_scores.setdefault(case.task_type, []).append(score)
             source_counts[source] = source_counts.get(source, 0) + 1
+            if source in ("deterministic", "deterministic_fallback"):
+                diagnostics["heuristic_solver_uses"] += 1
             diagnostics["cases"].append(
                 {
                     "key": key,
@@ -200,8 +258,13 @@ class StrategyEvaluator:
         self.last_error = None
 
         if not self.clients:
-            if self.mode == "llm":
-                raise RuntimeError("no LLM providers configured for strategy evaluation")
+            if self.mode == "llm" or not self.allow_heuristic:
+                raise RuntimeError(
+                    "no LLM clients available for strategy evaluation "
+                    f"(mode={self.mode!r}, allow_heuristic={self.allow_heuristic}). "
+                    "Set API keys (OPENAI_API_KEY, HF token, etc.) or set "
+                    "GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=1 for local heuristic simulation only."
+                )
             return (
                 build_heuristic_solution(task_prompt, task_type, strategy_text=strategy_text),
                 "deterministic",
@@ -257,8 +320,10 @@ class StrategyEvaluator:
                 )
 
         self.last_error = "; ".join(errors) if errors else "no enabled providers"
-        if self.mode == "llm":
-            raise RuntimeError(self.last_error)
+        if self.mode == "llm" or not self.allow_heuristic:
+            raise RuntimeError(
+                f"LLM strategy evaluation required but all providers failed: {self.last_error}"
+            )
         logger.info("LLM strategy solve failed; using deterministic fallback: %s", self.last_error)
 
         return (

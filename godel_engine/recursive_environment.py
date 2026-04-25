@@ -33,6 +33,7 @@ import random
 import uuid
 from typing import Any, Dict, List, Optional
 
+from godel_engine.challenge_pool import ChallengePool
 from godel_engine.evolution import (
     DEFAULT_STRATEGY_TEXT,
     Governor,
@@ -116,6 +117,7 @@ class RecursiveSelfImprovementEnv:
         self.huxley = HuxleyTracker()
         self.governor = Governor(governor_config)
         self.strategy_evaluator = StrategyEvaluator(seed=self.seed)
+        self.challenge_pool = ChallengePool()
 
         # Episode state
         self.episode_id = ""
@@ -336,6 +338,8 @@ class RecursiveSelfImprovementEnv:
                 self.governor.compute_utility(self.last_axis_scores)
             )
 
+        self._ingest_agent_challenge(action)
+
         return GodelStepResult(
             observation=self._build_observation(),
             reward=reward,
@@ -361,7 +365,17 @@ class RecursiveSelfImprovementEnv:
                 "strategy_elo": self.current_strategy.elo,
                 "strategy_generation": self.current_strategy.generation,
                 "registry_stats": self.registry.get_stats(),
+                "challenge_pool": self.challenge_pool.as_stats(),
             },
+        )
+
+    def _ingest_agent_challenge(self, action: GodelAction) -> None:
+        if action.agent_challenge is None:
+            return
+        self.challenge_pool.try_add(
+            task_type=action.agent_challenge.task_type,
+            prompt=action.agent_challenge.prompt,
+            source_episode=self.episode_id,
         )
 
     async def _evaluate_strategy(
@@ -378,6 +392,7 @@ class RecursiveSelfImprovementEnv:
             self.domains,
             strategy.policy_text,
             episode_id=self.episode_id,
+            challenge_pool=self.challenge_pool,
         )
 
         # Aggregate per-case scores to per-domain scores
@@ -498,6 +513,8 @@ class RecursiveSelfImprovementEnv:
             downstream_scores=self.last_per_domain_scores,
             patch_history=self.patch_history[-5:],
             budget_remaining=self.max_steps - self.step_count,
+            agent_challenges_queued=len(self.challenge_pool.items),
+            curriculum_level="recursive",
         )
 
     def state(self) -> GodelState:

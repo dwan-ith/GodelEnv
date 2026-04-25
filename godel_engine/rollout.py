@@ -405,6 +405,122 @@ def make_local_grpo_rollout(max_new_tokens: int = 512):
     return rollout_func
 
 
+def make_freeform_grpo_rollout(max_new_tokens: int = 256):
+    """
+    Rollout where the model generates a full text completion (JSON or prose),
+    then `parse_completion_to_action` maps it to a GodelAction.
+
+    This is the path that actually trains a language model for self-improvement;
+    :func:`make_local_grpo_rollout` only classifies a few special action tokens.
+    """
+    def rollout_func(prompts: List[str], trainer) -> Dict[str, Any]:
+        import torch
+        import torch.nn.functional as F
+
+        tokenizer = trainer.processing_class
+
+        inputs = tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=2048,
+        )
+        inputs = {key: value.to(trainer.model.device) for key, value in inputs.items()}
+
+        completion_ids_out: list[list[int]] = []
+        logprobs_out: list[list[float]] = []
+        completions: list[str] = []
+
+        attention_mask = inputs.get("attention_mask")
+        if attention_mask is None:
+            prompt_lengths = [inputs["input_ids"].shape[1]] * len(prompts)
+        else:
+            prompt_lengths = attention_mask.sum(dim=1).tolist()
+
+        for i, prompt in enumerate(prompts):
+            plen = int(prompt_lengths[i])
+            row_input_ids = inputs["input_ids"][i : i + 1, :plen]
+            row_mask = (
+                attention_mask[i : i + 1, :plen]
+                if attention_mask is not None
+                else torch.ones_like(row_input_ids)
+            )
+            with torch.no_grad():
+                out_ids = trainer.model.generate(
+                    row_input_ids,
+                    attention_mask=row_mask,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=0.9,
+                    top_p=0.95,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+            gen_part = out_ids[0, plen:].tolist()
+            completion_ids_out.append(gen_part)
+
+            with torch.no_grad():
+                model_out = trainer.model(
+                    input_ids=out_ids,
+                    attention_mask=torch.ones_like(out_ids, device=out_ids.device),
+                )
+            logits = model_out.logits[0]
+            log_probs = F.log_softmax(logits, dim=-1)
+            tok_lps: list[float] = []
+            for t in range(max(plen, 1) - 1, int(out_ids.shape[1]) - 1):
+                nxt = int(out_ids[0, t + 1].item())
+                tok_lps.append(float(log_probs[t, nxt].item()))
+            logprobs_out.append(tok_lps if tok_lps else [0.0])
+
+            completions.append(
+                tokenizer.decode(gen_part, skip_special_tokens=True)
+            )
+
+        all_rewards: Dict[str, list] = {
+            "task_score_delta": [],
+            "format_compliance": [],
+            "anti_hack_penalty": [],
+            "process_reward": [],
+            "env_score": [],
+            "patch_quality": [],
+        }
+
+        async def _step_all() -> None:
+            for prompt, completion in zip(prompts, completions):
+                env = GodelEnvironment()
+                try:
+                    meta = parse_prompt_metadata(prompt)
+                    task_prompt = extract_task_prompt(prompt)
+                    current_solution = extract_current_solution(prompt)
+                    await env.reset(task_type=meta["task_type"], task_id=meta["task_id"])
+                    action = parse_completion_to_action(
+                        completion,
+                        task_prompt=task_prompt,
+                        task_type=meta["task_type"],
+                        current_solution=current_solution,
+                    )
+                    result = await env.step(action)
+                    channels = extract_reward_channels(result)
+                    for key in all_rewards:
+                        all_rewards[key].append(channels.get(key, 0.0))
+                except Exception as exc:
+                    logger.warning("Freeform rollout step failed: %s", exc)
+                    for key in all_rewards:
+                        all_rewards[key].append(0.0)
+
+        run_async(_step_all())
+
+        return {
+            "prompt_ids": inputs["input_ids"].tolist(),
+            "completion_ids": completion_ids_out,
+            "logprobs": logprobs_out,
+            **all_rewards,
+        }
+
+    return rollout_func
+
+
 def task_reward_func(prompts: List[str], completions: List[str], **kwargs) -> List[float]:
     return kwargs.get("task_score_delta", [0.0] * len(completions))
 

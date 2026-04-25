@@ -18,7 +18,7 @@ from openenv.core.env_server.interfaces import Environment
 
 from godel_engine.async_utils import run_async
 from godel_engine.environment import GodelEnvironment
-from godel_engine.models import EditType, GodelAction
+from godel_engine.models import AgentChallengeProposal, EditType, GodelAction
 from godel_engine.openenv_models import (
     GodelOpenEnvAction,
     GodelOpenEnvObservation,
@@ -88,6 +88,8 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             downstream_scores=dict(obs.downstream_scores),
             patch_history=list(obs.patch_history),
             budget_remaining=obs.budget_remaining,
+            agent_challenges_queued=obs.agent_challenges_queued,
+            curriculum_level=obs.curriculum_level,
             reward_breakdown=result.reward_breakdown.model_dump(mode="json"),
             patch_decision=None,
         )
@@ -167,6 +169,8 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             downstream_scores=dict(obs.downstream_scores),
             patch_history=list(obs.patch_history),
             budget_remaining=obs.budget_remaining,
+            agent_challenges_queued=obs.agent_challenges_queued,
+            curriculum_level=obs.curriculum_level,
             reward_breakdown=result.reward_breakdown.model_dump(mode="json"),
             patch_decision=result.patch_decision.model_dump(mode="json")
             if result.patch_decision

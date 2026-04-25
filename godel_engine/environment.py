@@ -23,6 +23,7 @@ import random
 import uuid
 from typing import Dict, List, Optional
 
+from godel_engine.challenge_pool import ChallengePool
 from godel_engine.curriculum import CurriculumController, DIFFICULTY_LADDER
 from godel_engine.evolution import (
     DEFAULT_STRATEGY_TEXT,
@@ -91,6 +92,7 @@ class GodelEnvironment:
         self.governor = Governor()
         self.curriculum = CurriculumController()
         self.strategy_evaluator = StrategyEvaluator(seed=seed or 42)
+        self.challenge_pool = ChallengePool()
 
         # Legacy aliases for backward compat
         self.pool = self.registry
@@ -311,6 +313,7 @@ class GodelEnvironment:
             self.registry.update_elo(self.current_strategy.id, child.id)
             patch_reward = -0.05
 
+        self.curriculum.record_meta_patch_outcome(bool(decision["accepted"]))
         self.registry.compute_cmp()
 
         # Record patch in history
@@ -362,6 +365,8 @@ class GodelEnvironment:
             task: f"Score: {score:.3f}" for task, score in child_per_task.items()
         }
 
+        self._ingest_agent_challenge(action)
+
         return GodelStepResult(
             observation=self._build_obs(rubrics, feedback),
             reward=reward,
@@ -392,6 +397,14 @@ class GodelEnvironment:
                 "strategy_eval_mode": self.strategy_evaluator.mode,
                 "strategy_eval_source_counts": child_diagnostics.get("source_counts", {}),
                 "strategy_eval_last_error": child_diagnostics.get("last_error"),
+                "self_play": {
+                    "parent_utility": parent_utility,
+                    "child_utility": child_utility,
+                    "child_beats_parent_utility": child_utility > parent_utility,
+                    "governor_accepted": bool(decision["accepted"]),
+                },
+                "challenge_pool": self.challenge_pool.as_stats(),
+                "agent_challenges_mixed_in_eval": child_diagnostics.get("agent_challenges_mixed", 0),
             },
         )
 
@@ -482,6 +495,8 @@ class GodelEnvironment:
             self.registry.compute_cmp()
             self.curriculum.record_outcome(self.episode_difficulty, score)
 
+        self._ingest_agent_challenge(action)
+
         return GodelStepResult(
             observation=self._build_obs(rubrics, feedback),
             reward=reward,
@@ -503,7 +518,18 @@ class GodelEnvironment:
                     self.current_task, "last_grading_source", "deterministic"
                 ),
                 "grading_error": getattr(self.current_task, "last_grading_error", None),
+                "challenge_pool": self.challenge_pool.as_stats(),
             },
+        )
+
+    def _ingest_agent_challenge(self, action: GodelAction) -> None:
+        """Append a validated agent-authored challenge to the pool for future held-out eval."""
+        if action.agent_challenge is None:
+            return
+        self.challenge_pool.try_add(
+            task_type=action.agent_challenge.task_type,
+            prompt=action.agent_challenge.prompt,
+            source_episode=self.episode_id,
         )
 
     async def _evaluate_strategy_downstream(
@@ -521,6 +547,7 @@ class GodelEnvironment:
             strategy.policy_text,
             episode_id=self.episode_id,
             current_task_id=self.current_instance.task_id if self.current_instance else "",
+            challenge_pool=self.challenge_pool,
         )
 
         for task_type, score in diagnostics.get("per_family", {}).items():
@@ -641,4 +668,6 @@ class GodelEnvironment:
             downstream_scores=downstream,
             patch_history=self.patch_history[-5:],
             budget_remaining=self.max_steps - self.step_count,
+            agent_challenges_queued=len(self.challenge_pool.items),
+            curriculum_level=self.curriculum.current_difficulty,
         )

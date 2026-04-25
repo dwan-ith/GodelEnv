@@ -33,6 +33,9 @@ class CurriculumController:
     # Internal state
     current_level_idx: int = 0
     _history: dict = field(default_factory=dict)
+    # Escalate curriculum when meta-strategy patches are accepted (theme: capability growth)
+    meta_accept_streak: int = 0
+    meta_escalate_after: int = 2
 
     def __post_init__(self):
         # Rolling window of success/failure per difficulty level
@@ -83,6 +86,7 @@ class CurriculumController:
         stats = {
             "current_difficulty": self.current_difficulty,
             "level_index": self.current_level_idx,
+            "meta_accept_streak": self.meta_accept_streak,
         }
         for level in DIFFICULTY_LADDER:
             window = self._history.get(level, [])
@@ -95,3 +99,21 @@ class CurriculumController:
         """Manually set the curriculum to a specific difficulty level."""
         if difficulty in DIFFICULTY_LADDER:
             self.current_level_idx = DIFFICULTY_LADDER.index(difficulty)
+        self.meta_accept_streak = 0
+
+    def record_meta_patch_outcome(self, accepted: bool) -> None:
+        """
+        When the Governor accepts a strategy patch, nudge the curriculum up the
+        ladder so task sampling escalates (adaptive surface / capability growth).
+        Rejections break the streak without de-escalation here.
+        """
+        if accepted:
+            self.meta_accept_streak += 1
+            if (
+                self.meta_accept_streak >= self.meta_escalate_after
+                and self.current_level_idx < len(DIFFICULTY_LADDER) - 1
+            ):
+                self.current_level_idx += 1
+                self.meta_accept_streak = 0
+        else:
+            self.meta_accept_streak = 0

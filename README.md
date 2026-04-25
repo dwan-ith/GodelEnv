@@ -186,12 +186,14 @@ When LLM providers are unavailable, the environment uses an intelligent heuristi
 
 ## Verifiable Training Pipeline
 
-To prove the environment mechanics are learnable, GodelEnv ships with a reproducible training pipeline. The pipeline uses a compact action space so a tiny, local CPU policy can be trained and verified without massive compute.
+GodelEnv ships with a reproducible training pipeline (`train.py`). **Default (`--generation-mode symbolic`)** optimizes a tiny policy over a few special action tokens that expand into solutions; that path is useful for smoke tests and CI but is **not** full end-to-end language learning. For **learned JSON actions and freeform GRPO rollouts**, use `--generation-mode freeform`.
+
+**Neutral held-out evaluation (not heuristic simulation):** set `GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0` and provide API keys so `StrategyEvaluator` never falls back to `build_heuristic_solution`. See [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md) for Colab/GPU commands and longer runs.
 
 1. **Prompt Collection**: Samples initial states from the live environment.
-2. **Warm-Start**: Generates heuristic traces to teach the model the base `Action` or `StrategyPatch` schema.
-3. **SFT**: Supervised fine-tuning of a tiny local policy.
-4. **GRPO**: Group Relative Policy Optimization against the live environment to maximize the multi-channel reward.
+2. **Warm-Start**: Teaches the model the `Action` / `StrategyPatch` schema (symbolic: action tokens; freeform: JSON completions).
+3. **SFT**: Supervised fine-tuning.
+4. **GRPO**: Group Relative Policy Optimization — symbolic mode uses token classification; **freeform mode trains on generated text** end-to-end.
 
 ### Training Evidence
 
@@ -247,11 +249,11 @@ python -m compileall godel_engine server train.py train_colab.py demo.py
 ```
 
 ### Run the Training Pipeline
-Train the local proof-of-concept policy and export training plots:
+Local proof-of-concept (CPU, default symbolic mode):
 ```bash
 python train.py
 ```
-Or use the pre-configured notebook: `train_colab.ipynb`
+**Serious / GPU / Colab** (freeform + API-backed eval): see [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md). The maintainers of this repo cannot run long jobs on your hardware; use Colab, a cloud GPU, or your own machine.
 
 ## Project Links
 

@@ -1,15 +1,26 @@
 """
 Local Godel Env training pipeline.
 
-This script is designed to be reproducible on a CPU-only machine:
-1. Collect local environment prompts
-2. Warm-start a tiny causal LM with heuristic traces
-3. Refine it with GRPO against the deterministic environment
-4. Export loss and reward curves plus before/after metrics
+This script supports two training modes:
+
+1. SYMBOLIC mode (default, fast demo):
+   - Model learns to emit one of ~3 compact action tokens
+   - Tokens expand to handcrafted solutions via heuristic_policy
+   - Evidence quality: PARTIAL - measures policy selection over hardcoded macros
+   - Use for: quick smoke tests, CI, demo runs
+
+2. FREEFORM mode (slower, genuine evidence):
+   - Model learns to generate full JSON action completions
+   - No expansion through hardcoded heuristics
+   - Evidence quality: GENUINE - measures actual learned generation
+   - Use for: real training runs, publishable results
 
 The training path defaults to deterministic grading so the committed evidence is
 reproducible even if stale API credentials are present in the shell. Set
 `--grading-mode auto --strategy-eval-mode auto` to use a configured LLM provider.
+
+For the strongest evidence (genuine recursive self-improvement):
+  python train.py --generation-mode freeform --grading-mode auto --strategy-eval-mode auto
 """
 from __future__ import annotations
 
@@ -78,6 +89,17 @@ def parse_args() -> argparse.Namespace:
         help="Strategy evaluation mode: auto, llm, or deterministic.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--generation-mode",
+        type=str,
+        default="symbolic",
+        choices=["symbolic", "freeform"],
+        help=(
+            "Generation mode: 'symbolic' trains token classification over ~3 action macros "
+            "(fast, partial evidence); 'freeform' trains actual JSON generation (slower, "
+            "genuine evidence). Default: symbolic."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -88,14 +110,18 @@ def run(args: argparse.Namespace) -> dict:
 
     from godel_engine.rollout import collect_local_prompt_dataset
     from godel_engine.training_support import (
+        build_freeform_model,
         build_supervised_examples,
+        build_supervised_examples_freeform,
         build_tiny_model,
         evaluate_model,
+        evaluate_model_freeform,
         load_tokenizer,
         plot_before_after,
         plot_training_curves,
         run_grpo,
         run_sft,
+        warn_evidence_quality,
     )
 
     task_names = [task.strip() for task in args.tasks.split(",") if task.strip()]
@@ -103,6 +129,16 @@ def run(args: argparse.Namespace) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     os.environ["GODEL_GRADING_MODE"] = args.grading_mode
     os.environ["GODEL_STRATEGY_EVAL_MODE"] = args.strategy_eval_mode
+
+    # Warn about evidence quality based on configuration
+    generation_mode = getattr(args, "generation_mode", "symbolic")
+    evidence_quality = warn_evidence_quality(
+        generation_mode=generation_mode,
+        grading_mode=args.grading_mode,
+        strategy_eval_mode=args.strategy_eval_mode,
+    )
+    logger.info("Evidence quality: %s (generation=%s, grading=%s, strategy_eval=%s)",
+                evidence_quality, generation_mode, args.grading_mode, args.strategy_eval_mode)
 
     random.seed(42)
     np.random.seed(42)
@@ -115,28 +151,46 @@ def run(args: argparse.Namespace) -> dict:
         tasks=task_names,
         seed=42,
     )
-    supervised_examples = build_supervised_examples(prompt_data)
+    
+    # Build examples and model based on generation mode
+    is_freeform = generation_mode == "freeform"
+    
+    if is_freeform:
+        logger.info("Using FREEFORM mode: training actual JSON generation")
+        supervised_examples = build_supervised_examples_freeform(prompt_data)
+        tokenizer = load_tokenizer()
+        model = build_freeform_model(
+            tokenizer,
+            max_length=max(args.max_input_length + args.max_new_tokens + 256, 1024),
+        )
+        eval_func = evaluate_model_freeform
+        # Freeform needs more tokens to generate JSON
+        effective_max_new_tokens = max(args.max_new_tokens, 256)
+    else:
+        logger.info("Using SYMBOLIC mode: training compact token classification")
+        supervised_examples = build_supervised_examples(prompt_data)
+        tokenizer = load_tokenizer()
+        model = build_tiny_model(
+            tokenizer,
+            max_length=max(args.max_input_length + args.max_new_tokens + 128, 768),
+        )
+        eval_func = evaluate_model
+        effective_max_new_tokens = args.max_new_tokens
 
-    logger.info("Building tiny tokenizer-backed model")
-    tokenizer = load_tokenizer()
-    model = build_tiny_model(
-        tokenizer,
-        max_length=max(args.max_input_length + args.max_new_tokens + 128, 768),
-    )
-
-    baseline_metrics = evaluate_model(
+    baseline_metrics = eval_func(
         model,
         tokenizer,
         prompt_data,
-        max_new_tokens=args.max_new_tokens,
+        max_new_tokens=effective_max_new_tokens,
         max_input_length=args.max_input_length,
         policy_mode="random",
         seed=42,
     )
     logger.info(
-        "Baseline metrics: reward=%.4f score=%.4f",
+        "Baseline metrics: reward=%.4f score=%.4f (generation_mode=%s)",
         baseline_metrics["mean_reward"],
         baseline_metrics["mean_score"],
+        generation_mode,
     )
 
     if args.dry_run:
@@ -144,9 +198,13 @@ def run(args: argparse.Namespace) -> dict:
             "prompt_count": len(prompt_data),
             "tasks": task_names,
             "baseline": baseline_metrics,
+            "generation_mode": generation_mode,
+            "evidence_quality": evidence_quality,
         }
 
     logger.info("Running SFT warm start")
+    # For freeform, we need longer max_length to fit JSON completions
+    sft_max_length = args.max_input_length + effective_max_new_tokens if is_freeform else args.max_input_length
     sft_logs = run_sft(
         model,
         tokenizer,
@@ -154,11 +212,11 @@ def run(args: argparse.Namespace) -> dict:
         output_dir=output_dir / "sft",
         max_steps=args.sft_steps,
         batch_size=1,
-        max_length=args.max_input_length,
+        max_length=sft_max_length,
         use_cpu=True,
     )
 
-    logger.info("Running GRPO refinement")
+    logger.info("Running GRPO refinement (generation_mode=%s)", generation_mode)
     grpo_logs = run_grpo(
         model,
         tokenizer,
@@ -167,24 +225,26 @@ def run(args: argparse.Namespace) -> dict:
         max_steps=args.grpo_steps,
         batch_size=2,
         num_generations=2,
-        max_completion_length=args.max_new_tokens,
-        max_new_tokens=args.max_new_tokens,
+        max_completion_length=effective_max_new_tokens,
+        max_new_tokens=effective_max_new_tokens,
         use_cpu=True,
+        generation_mode=generation_mode,
     )
 
-    trained_metrics = evaluate_model(
+    trained_metrics = eval_func(
         model,
         tokenizer,
         prompt_data,
-        max_new_tokens=args.max_new_tokens,
+        max_new_tokens=effective_max_new_tokens,
         max_input_length=args.max_input_length,
         policy_mode="model",
         seed=42,
     )
     logger.info(
-        "Trained metrics: reward=%.4f score=%.4f",
+        "Trained metrics: reward=%.4f score=%.4f (generation_mode=%s)",
         trained_metrics["mean_reward"],
         trained_metrics["mean_score"],
+        generation_mode,
     )
 
     plots = plot_training_curves(sft_logs, grpo_logs, output_dir)
@@ -195,9 +255,24 @@ def run(args: argparse.Namespace) -> dict:
     model.save_pretrained(final_model_dir)
     tokenizer.save_pretrained(final_model_dir)
 
+    # Build evidence quality note for the summary
+    evidence_note = None
+    if evidence_quality != "genuine":
+        evidence_note = (
+            f"EVIDENCE QUALITY: {evidence_quality.upper()}. "
+            f"generation_mode={generation_mode}, grading_mode={args.grading_mode}, "
+            f"strategy_eval_mode={args.strategy_eval_mode}. "
+            "For genuine evidence, use: --generation-mode freeform --grading-mode auto --strategy-eval-mode auto"
+        )
+
     summary = {
         "tasks": task_names,
         "prompt_count": len(prompt_data),
+        "generation_mode": generation_mode,
+        "grading_mode": args.grading_mode,
+        "strategy_eval_mode": args.strategy_eval_mode,
+        "evidence_quality": evidence_quality,
+        "evidence_note": evidence_note,
         "baseline": baseline_metrics,
         "trained": trained_metrics,
         "improvement": {
@@ -205,6 +280,8 @@ def run(args: argparse.Namespace) -> dict:
             "score_delta": trained_metrics["mean_score"] - baseline_metrics["mean_score"],
             "structured_action_rate_delta": trained_metrics.get("structured_action_rate", 0.0)
             - baseline_metrics.get("structured_action_rate", 0.0),
+            "json_action_rate_delta": trained_metrics.get("json_action_rate", 0.0)
+            - baseline_metrics.get("json_action_rate", 0.0) if is_freeform else None,
             "patch_rate_delta": trained_metrics.get("strategy_patch_rate", 0.0)
             - baseline_metrics.get("strategy_patch_rate", 0.0),
             "patch_acceptance_delta": trained_metrics.get("patch_acceptance_rate", 0.0)
