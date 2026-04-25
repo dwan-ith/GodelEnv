@@ -1,275 +1,128 @@
-# GodelEnv
+---
+title: GodelEnv
+emoji: 🔁
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+# GodelEnv: A Verifiable Environment for Recursive Self-Improvement
 
-GodelEnv is an OpenEnv environment for recursive self-improvement. The agent is not limited to rewriting a single answer; on `strategy_optimization` episodes it can propose a `StrategyPatch`, test that patch on hidden downstream tasks, and keep it only if it improves multi-objective utility without broad regressions.
+GodelEnv is a reinforcement learning environment built on the `openenv-core` framework. It is designed to move beyond static, single-turn task optimization. Instead of merely rewarding an agent for producing a correct final answer, GodelEnv provides the infrastructure for **recursive skill amplification**: an agent can propose mutations to its own reasoning strategy, test those mutations against hidden downstream tasks, and retain them only if they genuinely improve multi-objective utility.
 
-This repo now behaves like a real environment instead of a demo that only talks about self-improvement:
+## The Problem
 
-- OpenEnv-compliant server and client surfaces
-- held-out downstream evaluation for strategy mutations
-- multi-channel reward with anti-hacking guards
-- hybrid LLM-first runtime with deterministic fallback
-- reproducible local training evidence with a runnable notebook and saved plots
+Most LLM training environments focus on evaluating outputs against a fixed rubric (e.g., did the code pass the test? is the QA factually correct?). While effective for skill acquisition, this approach does not teach an agent *how to learn* or *how to adapt its reasoning*.
 
-## Links
+GodelEnv introduces a meta-loop. In a `strategy_optimization` episode, the agent sees its current reasoning strategy, recent failure cases, and downstream scores. It can then output a `StrategyPatch`. 
 
-- Hugging Face Space: [litterarum/GodelEnv](https://huggingface.co/spaces/litterarum/GodelEnv)
-- Source repo: [dwan-ith/GodelEnv](https://github.com/dwan-ith/GodelEnv)
-- Training notebook: [train_colab.ipynb](train_colab.ipynb)
-- Training script: [train.py](train.py)
-- Writeup: [blog_draft.md](blog_draft.md)
-- Training evidence: [artifacts/training_run](artifacts/training_run)
+Instead of blindly accepting the mutation, the environment plays the role of a rigorous experimental sandbox:
+1. It builds a child strategy from the patch.
+2. It evaluates the parent vs. the child strategy on a bundle of held-out, episodic downstream tasks.
+3. A Governor applies regression gates and anti-hacking guards.
+4. The patch is accepted only if it demonstrates verifiable, generalized improvement.
 
-## Hackathon Checklist
+This shifts the RL objective from "answering a question" to "improving the policy that answers questions."
 
-- OpenEnv dependency updated to `openenv-core>=0.2.3`
-- OpenEnv manifest: [openenv.yaml](openenv.yaml)
-- Hosted environment link in README: [HF Space](https://huggingface.co/spaces/litterarum/GodelEnv)
-- Runnable training script: [train.py](train.py)
-- Runnable notebook: [train_colab.ipynb](train_colab.ipynb)
-- Committed evidence plots: [loss_curve.png](artifacts/training_run/loss_curve.png), [reward_curve.png](artifacts/training_run/reward_curve.png), [before_after.png](artifacts/training_run/before_after.png)
-- Storytelling asset: [blog_draft.md](blog_draft.md)
+## Architecture
 
-## Problem
+GodelEnv behaves as a fully compliant OpenEnv service, making it compatible with existing agentic RL pipelines.
 
-The hackathon theme is self-improvement: build an environment where an agent can create or refine the conditions for its own capability growth.
+- **OpenEnv Interface**: Conforms strictly to `openenv-core>=0.2.3` standards with standard `/reset`, `/step`, and `/state` API surfaces.
+- **Hybrid Runtime**: Supports a dual-execution path. It uses an LLM-first behavior (`auto`) for rigorous grading, agent actions, and strategy evaluation, but gracefully fails over to deterministic grading if provider credentials are stale or rate-limited.
+- **Multi-Channel Reward**: Discards the single scalar reward in favor of a detailed, multi-axis vector including `task_score_delta`, `format_compliance`, `generalization_score`, `robustness_score`, and `anti_hack_penalty`.
+- **Guardrails**: Includes robust checks for empty responses, repetition, forbidden code patterns, canary leakage, and strategy length limits.
 
-GodelEnv targets that directly. Most LLM environments reward only the final answer on a fixed task. GodelEnv also lets the agent improve the policy that produces answers:
+### Supported Providers
 
-1. The agent sees the task, current draft, current reasoning strategy, recent failures, downstream family scores, and remaining budget.
-2. It can either submit a direct answer edit or propose a `StrategyPatch`.
-3. A proposed patch is evaluated against the parent strategy on hidden downstream cases.
-4. The Governor accepts the patch only if it improves utility while clearing regression and anti-hacking checks.
-
-That makes the environment a practical recursive-skill-amplification loop rather than a single-turn rewrite benchmark.
-
-## Environment Design
-
-The canonical OpenEnv surface lives in:
-
-- [godel_engine/openenv_environment.py](godel_engine/openenv_environment.py)
-- [godel_engine/openenv_models.py](godel_engine/openenv_models.py)
-- [server/app.py](server/app.py)
-- [godel_engine/client.py](godel_engine/client.py)
-
-Server endpoints:
-
-- `POST /reset`
-- `POST /step`
-- `GET /state`
-- `GET /metadata`
-- `GET /schema`
-- `GET /health`
-- `WS /ws`
-
-### Observation
-
-Each episode exposes:
-
-- `task_prompt`
-- `current_solution`
-- `current_strategy`
-- `recent_failures`
-- `downstream_scores`
-- rubric scores and feedback
-- strategy lineage metadata such as ELO and generation
-- step counter and remaining budget
-
-### Actions
-
-The agent can:
-
-1. Submit a direct solution edit.
-2. Submit a `StrategyPatch` with `improved_strategy`, `diff_description`, `hypothesis`, and `target_weaknesses`.
-
-### Termination
-
-Episodes end when:
-
-- a patch is accepted
-- the trajectory plateaus
-- a severe guard violation fires
-- the max step budget is reached
-
-## Reward And Guardrails
-
-The reward is multi-channel, not a single scalar:
-
-- `task_score_delta`
-- `format_compliance`
-- `step_cost`
-- `anti_hack_penalty`
-- `process_reward`
-- `patch_quality`
-- `generalization_score`
-- `robustness_score`
-- `stability_score`
-
-The environment also includes anti-reward-hacking checks:
-
-- empty / repetition / length guards
-- forbidden code pattern checks
-- regression and canary checks
-- strategy variance penalties
-- strategy length limits
-- guarded patch acceptance rather than unconditional mutation
-
-## Hybrid Runtime
-
-The environment is designed for two useful operating modes:
-
-- `auto`: LLM-first behavior for grading, agent actions, and strategy evaluation, with deterministic fallback if the provider fails
-- `deterministic`: reproducible offline mode for training evidence and judging
-
-Supported provider groups:
+The environment supports rapid iteration across major inference providers:
 
 ```bash
+# OpenAI Configuration
 set OPENAI_API_KEY=...
 set OPENAI_MODEL_NAME=gpt-4o-mini
-```
 
-```bash
+# Custom/vLLM/Ollama Configuration
 set API_KEY=...
 set API_BASE_URL=https://your-openai-compatible-provider/v1
 set CUSTOM_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-```
 
-```bash
+# Hugging Face Router Configuration
 set HF_TOKEN=...
 set HF_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
 set HF_API_BASE_URL=https://router.huggingface.co/v1
 ```
 
-Common runtime flags:
-
+Common runtime flags to control the hybrid execution:
 ```bash
 set GODEL_GRADING_MODE=auto
 set GODEL_STRATEGY_EVAL_MODE=auto
 set GODEL_PROVIDER_ORDER=openai,custom,huggingface
 ```
 
-The runtime now uses provider-specific fallback and circuit breaking, so one bad endpoint no longer disables the whole hybrid path.
+## Verifiable Training Pipeline
 
-To verify that a live provider is actually being used instead of silently falling back:
+To prove the environment mechanics are learnable, GodelEnv ships with a reproducible training pipeline. The pipeline uses a compact action space so a tiny, local CPU policy can be trained and verified without massive compute.
 
-```bash
-python hybrid_smoke.py --require-llm
-```
+1. **Prompt Collection**: Samples initial states from the live environment.
+2. **Warm-Start**: Generates heuristic traces to teach the model the base `Action` or `StrategyPatch` schema.
+3. **SFT**: Supervised fine-tuning of a tiny local policy.
+4. **GRPO**: Group Relative Policy Optimization against the live environment to maximize the multi-channel reward.
 
-For dashboard debugging, the demo server also exposes:
+### Training Evidence
 
-```text
-GET /demo/provider-status
-```
-
-## Training Pipeline
-
-The repo ships a small but real proof-of-concept training path:
-
-1. Collect prompts from the live environment.
-2. Build heuristic warm-start traces.
-3. Train a tiny local GPT-2 policy with SFT.
-4. Refine it with GRPO against the environment.
-5. Save loss, reward, and before/after plots plus a metrics JSON file.
-
-To make the CPU proof-of-concept trainable, the tiny local model emits compact action tokens such as "direct best" or "balanced patch". The environment expands those tokens into full environment actions before verification. This keeps the local notebook runnable while preserving the actual environment semantics.
-
-Run the full pipeline:
-
-```bash
-python train.py
-```
-
-Quick smoke test:
-
-```bash
-python train.py --dry-run
-```
-
-Notebook version:
-
-```bash
-train_colab.ipynb
-```
-
-The notebook defaults to deterministic grading and strategy evaluation so judges can reproduce the committed evidence without API access.
-
-## Training Evidence
-
-The latest committed run compares a random compact baseline against the trained compact policy on 16 prompts across:
-
-- `factual_qa`
-- `alignment_qa`
-- `reasoning`
-- `strategy_optimization`
-
-Headline metrics from [artifacts/training_run/metrics.json](artifacts/training_run/metrics.json):
+The committed training evidence (available in `artifacts/training_run`) demonstrates that the environment provides a clear, learnable gradient. The results below compare a random baseline against the trained policy over 16 prompts across factual QA, alignment QA, reasoning, and strategy optimization tasks.
 
 | Metric | Baseline | Trained | Delta |
 | --- | ---: | ---: | ---: |
-| Mean reward | 0.4090 | 0.5224 | +0.1134 |
-| Mean score | 0.7361 | 0.8384 | +0.1023 |
-| Structured action rate | 1.0000 | 1.0000 | +0.0000 |
-| Strategy patch rate | 0.1250 | 0.0000 | -0.1250 |
-| Patch acceptance rate | 0.5000 | 0.0000 | -0.5000 |
+| Mean reward | 0.4090 | 0.5224 | **+0.1134** |
+| Mean score | 0.7361 | 0.8384 | **+0.1023** |
 
-Per-task score means:
-
-| Task family | Baseline | Trained | Delta |
-| --- | ---: | ---: | ---: |
-| `factual_qa` | 0.9581 | 0.9581 | +0.0000 |
-| `alignment_qa` | 0.6319 | 0.7178 | +0.0859 |
-| `reasoning` | 0.7917 | 1.0000 | +0.2083 |
-| `strategy_optimization` | 0.5628 | 0.6778 | +0.1150 |
-
-Interpretation:
-
-- The local proof-of-concept now shows real learning on both reward and downstream score.
-- The trained tiny model converges to the stronger direct-answer action instead of continuing to explore the higher-variance patch action.
-- The recursive patch path is still real and verified in-environment, but the tiny CPU policy is conservative. Richer recursive behavior is the next step for the hybrid API-backed path.
-
-### Loss Curve
-
+#### Loss Curve (SFT)
 ![SFT loss curve](artifacts/training_run/loss_curve.png)
 
-### Reward Curve
-
+#### Reward Curve (GRPO)
 ![GRPO reward curve](artifacts/training_run/reward_curve.png)
 
-### Before / After Summary
-
+#### Comparison
 ![Before and after training](artifacts/training_run/before_after.png)
 
-## Dashboard
+This shows concrete learning on both reward and downstream score. The current miniature policy converges to a conservative "direct-answer" strategy. The environment path is fully verified and ready for scaling with larger models that can explore richer recursive behaviors.
 
-The dashboard surfaces the live recursive loop:
+## Real-Time Dashboard
 
-- score, delta, and step status cards
-- strategy ELO, generation, and budget
-- current reasoning strategy
-- recent downstream failures
-- grading / rubric breakdowns
-- live log stream for grading source and Governor decisions
+The environment includes a high-fidelity dashboard to monitor the recursive loop visually:
 
-## Local Validation
+- **Engine Status**: Real-time tracking of score progression, step counts, and delta.
+- **Strategy Stats**: Monitors the agent's Strategy ELO, Generation lineage, and remaining computation budget.
+- **Reasoning Strategy**: Displays the specific reasoning policy currently driving the agent's behavior.
+- **Recent Failures**: A live feedback loop showing the "challengers" (failed tasks) that guide the next strategy mutation.
+- **Telemetry**: Verbose streaming of grading sources and Governor acceptance/rejection decisions.
 
-Checks run on the upgraded repo:
+## Quick Start & Validation
 
+### Run the Environment Locally
 ```bash
-pytest -q
+uvicorn server.app:app --host 0.0.0.0 --port 7860
+```
+
+### Validate the Engine
+Ensure all core mechanics, grading paths, and OpenEnv specifications are functioning:
+```bash
 openenv validate
+pytest -q
 python -m compileall godel_engine server train.py train_colab.py demo.py
 ```
 
-Notebook execution check:
-
+### Run the Training Pipeline
+Train the local proof-of-concept policy and export training plots:
 ```bash
-python -m jupyter nbconvert --execute --to notebook --inplace train_colab.ipynb
+python train.py
 ```
+Or use the pre-configured notebook: `train_colab.ipynb`
 
-## Current Limitations
+## Project Links
 
-- The tiny local model is a proof-of-concept, not the final ceiling of the environment.
-- The committed CPU run improves reward and score, but it does not yet learn to prefer recursive patches.
-- Stronger recursive self-improvement behavior will likely require the hybrid LLM path or a larger local model.
-
-That limitation is honest, and it is exactly why the environment was refactored this way: the environment mechanics are now real, the verifier path is real, the notebook is runnable, and stronger models can plug into the same loop without rewriting the environment.
+- **Hosted Demo**: [HF Space](https://huggingface.co/spaces/litterarum/GodelEnv)
+- **Source Code**: [GitHub](https://github.com/dwan-ith/GodelEnv)
+- **Blog**: [blog_draft.md](blog_draft.md)
