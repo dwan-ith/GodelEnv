@@ -99,11 +99,18 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             if edit_type_raw in EditType.__members__
             else EditType.REWRITE
         )
+        
+        # Handle strategy_patch as either StrategyPatch object or dict
+        strategy_patch = action.strategy_patch
+        if isinstance(strategy_patch, dict):
+            from godel_engine.models import StrategyPatch
+            strategy_patch = StrategyPatch(**strategy_patch)
+        
         internal_action = GodelAction(
             solution=action.solution,
             edit_type=edit_type,
             strategy_note=action.strategy_note or "",
-            strategy_patch=action.strategy_patch,
+            strategy_patch=strategy_patch,
         )
 
         result = run_async(self._env.step(internal_action))

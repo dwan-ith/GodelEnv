@@ -350,7 +350,14 @@ document.addEventListener("DOMContentLoaded", () => {
             logSystem(`[${patchSource}] Strategy patch proposed: ${actionResult.strategy_patch.diff_description?.substring(0, 60) || 'n/a'}...`);
         }
 
-        return actionResult;
+        // Return only the action fields expected by the WebSocket /step endpoint
+        // Filter out diagnostic fields (agent_source, agent_provider, agent_error, is_llm_generated)
+        return {
+            solution: actionResult.solution,
+            edit_type: actionResult.edit_type,
+            strategy_note: actionResult.strategy_note,
+            strategy_patch: actionResult.strategy_patch
+        };
     }
 
     btnReset.onclick = async () => {

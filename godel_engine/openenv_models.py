@@ -20,10 +20,15 @@ from godel_engine.models import StrategyPatch
 
 
 class GodelOpenEnvAction(Action):
+    """Action schema for GodelEnv WebSocket/HTTP endpoints."""
+    
+    # Allow extra fields to be ignored (for forward compatibility)
+    model_config = {"extra": "ignore"}
+    
     solution: str = Field(..., description="Full replacement solution submitted by the agent.")
     edit_type: str = Field(default="rewrite")
     strategy_note: str = Field(default="")
-    strategy_patch: StrategyPatch | None = Field(
+    strategy_patch: StrategyPatch | dict[str, Any] | None = Field(
         default=None,
         description="Optional recursive self-improvement patch to evaluate on held-out tasks.",
     )
