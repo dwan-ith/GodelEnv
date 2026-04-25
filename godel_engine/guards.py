@@ -146,7 +146,7 @@ def empty_solution_guard(
 def strategy_regression_gate(
     per_task_parent: Dict[str, float],
     per_task_child: Dict[str, float],
-    max_regression_fraction: float = 0.2,
+    max_regression_fraction: float = 0.35,
 ) -> Tuple[float, str | None]:
     """
     Reject patches that cause regressions on too many individual tasks,

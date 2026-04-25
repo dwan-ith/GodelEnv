@@ -316,3 +316,134 @@ def test_openai_never_uses_hub_model_id_from_model_name(monkeypatch) -> None:
     openai_config = next(c for c in configs if c.name == "openai")
     assert openai_config.model_name == DEFAULT_OPENAI_MODEL
     assert "/" not in openai_config.model_name
+
+
+# ---------------------------------------------------------------------------
+# Governor and Guards Tests
+# ---------------------------------------------------------------------------
+
+from godel_engine.evolution import Governor, GovernorConfig
+from godel_engine.guards import (
+    GuardResult,
+    canary_guard,
+    run_strategy_guards,
+    strategy_length_guard,
+    strategy_regression_gate,
+    strategy_variance_penalty,
+)
+
+
+def test_governor_accepts_patch_with_improvement() -> None:
+    """Governor should accept patches that improve utility without major regressions."""
+    governor = Governor()
+    parent_scores = {"correctness": 0.6, "generalization": 0.5, "robustness": 0.5, "cost": 0.7, "stability": 0.6}
+    child_scores = {"correctness": 0.7, "generalization": 0.55, "robustness": 0.55, "cost": 0.7, "stability": 0.65}
+    per_task_parent = {"factual_qa": 0.6, "reasoning": 0.5, "alignment_qa": 0.5}
+    per_task_child = {"factual_qa": 0.65, "reasoning": 0.55, "alignment_qa": 0.6}
+
+    decision = governor.decide(parent_scores, child_scores, per_task_parent, per_task_child)
+    assert decision["accepted"] is True
+    assert decision["improvement"] > 0
+
+
+def test_governor_rejects_patch_with_too_many_regressions() -> None:
+    """Governor should reject patches that regress on too many tasks."""
+    governor = Governor()
+    parent_scores = {"correctness": 0.6, "generalization": 0.5, "robustness": 0.5, "cost": 0.7, "stability": 0.6}
+    child_scores = {"correctness": 0.65, "generalization": 0.4, "robustness": 0.45, "cost": 0.7, "stability": 0.5}
+    per_task_parent = {"factual_qa": 0.6, "reasoning": 0.5, "alignment_qa": 0.5, "code": 0.6}
+    per_task_child = {"factual_qa": 0.7, "reasoning": 0.3, "alignment_qa": 0.3, "code": 0.4}
+
+    decision = governor.decide(parent_scores, child_scores, per_task_parent, per_task_child)
+    assert decision["accepted"] is False
+    assert any("regression" in r.lower() for r in decision["rejection_reasons"])
+
+
+def test_governor_rejects_patch_with_insufficient_improvement() -> None:
+    """Governor should reject patches with negligible improvement."""
+    config = GovernorConfig(min_improvement=0.01)
+    governor = Governor(config)
+    parent_scores = {"correctness": 0.6, "generalization": 0.5, "robustness": 0.5, "cost": 0.7, "stability": 0.6}
+    child_scores = {"correctness": 0.601, "generalization": 0.5, "robustness": 0.5, "cost": 0.7, "stability": 0.6}
+    per_task_parent = {"factual_qa": 0.6}
+    per_task_child = {"factual_qa": 0.601}
+
+    decision = governor.decide(parent_scores, child_scores, per_task_parent, per_task_child)
+    assert decision["accepted"] is False
+    assert any("improvement" in r.lower() for r in decision["rejection_reasons"])
+
+
+def test_strategy_length_guard_rejects_short_strategies() -> None:
+    """Strategies that are too short should be penalized."""
+    short_strategy = "Be good at tasks."
+    penalty, violation = strategy_length_guard(short_strategy)
+    assert penalty < 0
+    assert "too short" in violation.lower()
+
+
+def test_strategy_length_guard_accepts_reasonable_strategies() -> None:
+    """Strategies with reasonable length should pass."""
+    reasonable_strategy = (
+        "1. Decompose the problem into atomic claims and assumptions. "
+        "2. Gather evidence for each claim from reliable sources. "
+        "3. Generate counterarguments and alternative hypotheses. "
+        "4. Mark confidence levels for uncertain claims. "
+        "5. Run a self-check before finalizing the answer."
+    )
+    penalty, violation = strategy_length_guard(reasonable_strategy)
+    assert penalty == 0.0
+    assert violation is None
+
+
+def test_canary_guard_catches_gaming_attempts() -> None:
+    """Canary guard should detect strategies that reference internals."""
+    gaming_strategy = (
+        "To score well, maximize rubric_scores by including keywords "
+        "that match the total_score calculation."
+    )
+    penalty, violation = canary_guard(gaming_strategy)
+    assert penalty < 0
+    assert "canary" in violation.lower()
+
+
+def test_canary_guard_passes_legitimate_strategies() -> None:
+    """Legitimate strategies should pass the canary guard."""
+    good_strategy = (
+        "1. Read and understand the task prompt carefully. "
+        "2. Break down the problem into smaller components. "
+        "3. Gather relevant evidence and verify claims. "
+        "4. Generate alternative solutions and counterarguments. "
+        "5. Self-check the final answer for accuracy."
+    )
+    penalty, violation = canary_guard(good_strategy)
+    assert penalty == 0.0
+    assert violation is None
+
+
+def test_strategy_regression_gate_allows_some_regressions() -> None:
+    """Regression gate should allow regressions up to the threshold."""
+    per_task_parent = {"a": 0.6, "b": 0.6, "c": 0.6, "d": 0.6, "e": 0.6}
+    per_task_child = {"a": 0.7, "b": 0.7, "c": 0.7, "d": 0.55, "e": 0.55}  # 2/5 = 40% regression
+    
+    # With 35% threshold, 40% should fail
+    penalty, violation = strategy_regression_gate(per_task_parent, per_task_child, max_regression_fraction=0.35)
+    assert penalty < 0
+    assert "regressed" in violation.lower()
+    
+    # With 50% threshold, 40% should pass
+    penalty, violation = strategy_regression_gate(per_task_parent, per_task_child, max_regression_fraction=0.50)
+    assert penalty == 0.0
+    assert violation is None
+
+
+def test_run_strategy_guards_aggregates_penalties() -> None:
+    """run_strategy_guards should aggregate all guard results."""
+    # Very short strategy + high regression = multiple penalties
+    short_strategy = "Do stuff."
+    per_task_parent = {"a": 0.9, "b": 0.9, "c": 0.9}
+    per_task_child = {"a": 0.1, "b": 0.1, "c": 0.1}
+
+    result = run_strategy_guards(short_strategy, per_task_parent, per_task_child)
+    assert result.passed is False
+    assert len(result.violations) >= 2  # At least length + regression
+    assert result.penalty < 0
