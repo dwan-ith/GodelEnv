@@ -12,6 +12,11 @@ from typing import Dict
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
+from godel_engine.provider_runtime import (
+    ProviderCircuitBreaker,
+    load_provider_configs,
+)
+
 
 load_dotenv(override=False)
 logger = logging.getLogger("godel_env.grader")
@@ -32,36 +37,38 @@ def _extract_json_blob(text: str) -> str | None:
 class AgentGrader:
     """API-backed grader that gracefully falls back to local verification."""
 
-    _provider_disabled_global = False
-
     def __init__(self, max_concurrent: int = 10, timeout: int = 30) -> None:
-        self.api_key = (
-            os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.providers = load_provider_configs()
+        self.grading_mode = (
+            os.getenv("GODEL_GRADING_MODE", "auto").strip().lower()
         )
-        self.base_url = os.getenv("API_BASE_URL")
-        if self.api_key and not self.base_url and os.getenv("HF_TOKEN"):
-            self.base_url = "https://router.huggingface.co/v1"
-        default_model = (
-            "Qwen/Qwen2.5-7B-Instruct" if self.base_url else "gpt-4o-mini"
-        )
-        self.model_name = os.getenv("MODEL_NAME", default_model)
-        self.grading_mode = os.getenv("GODEL_GRADING_MODE", "auto").strip().lower()
-        self._disabled = False
 
-        if self.api_key:
-            self.client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url if self.base_url else None,
+        self.clients: list[tuple[str, str, AsyncOpenAI]] = []
+        for provider in self.providers:
+            if not provider.api_key:
+                continue
+            self.clients.append(
+                (
+                    provider.name,
+                    provider.model_name,
+                    AsyncOpenAI(
+                        api_key=provider.api_key,
+                        base_url=provider.base_url if provider.base_url else None,
+                    ),
+                )
             )
-        else:
-            self.client = None
 
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self.timeout = timeout
         self.last_error: str | None = None
+        self.last_source = "deterministic"
+        self.last_provider: str | None = None
 
     def is_available(self) -> bool:
-        return self.client is not None
+        return any(
+            not ProviderCircuitBreaker.is_disabled(provider_name)
+            for provider_name, _, _ in self.clients
+        )
 
     async def safe_grade(
         self,
@@ -72,17 +79,20 @@ class AgentGrader:
     ) -> tuple[float, Dict[str, float], Dict[str, str]] | None:
         """Return an LLM grade when available, otherwise None for fallback."""
         self.last_error = None
+        self.last_source = "deterministic"
+        self.last_provider = None
 
         if self.grading_mode == "deterministic":
             self.last_error = "grading mode is deterministic"
             return None
 
-        if self._disabled or AgentGrader._provider_disabled_global:
-            self.last_error = "API grader disabled after previous provider failure"
+        if not self.clients:
+            self.last_error = "no API client configured"
             return None
 
-        if not self.client:
-            self.last_error = "no API client configured"
+        if all(ProviderCircuitBreaker.is_disabled(provider_name) for provider_name, _, _ in self.clients):
+            reason = ProviderCircuitBreaker.reason() or "provider disabled"
+            self.last_error = f"API grader disabled after previous provider failure: {reason}"
             return None
 
         rubric_description = "\n".join(
@@ -99,52 +109,67 @@ class AgentGrader:
             f"CANDIDATE SOLUTION:\n{current_solution}"
         )
 
-        try:
-            async with self.semaphore:
-                response = await asyncio.wait_for(
-                    self.client.chat.completions.create(
-                        model=self.model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        response_format={"type": "json_object"},
-                        max_tokens=1200,
-                    ),
-                    timeout=self.timeout,
+        errors: list[str] = []
+        for provider_name, model_name, client in self.clients:
+            if ProviderCircuitBreaker.is_disabled(provider_name):
+                errors.append(
+                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name)})"
+                )
+                continue
+
+            try:
+                async with self.semaphore:
+                    response = await asyncio.wait_for(
+                        client.chat.completions.create(
+                            model=model_name,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            response_format={"type": "json_object"},
+                            max_tokens=1200,
+                        ),
+                        timeout=self.timeout,
+                    )
+
+                content = response.choices[0].message.content or "{}"
+                blob = _extract_json_blob(content)
+                payload = json.loads(blob or "{}")
+
+                raw_scores = payload.get("scores", {})
+                raw_feedback = payload.get("feedback", {})
+                if not isinstance(raw_scores, dict):
+                    raise ValueError("grader response did not include a scores object")
+                if not any(name in raw_scores for name in rubrics):
+                    raise ValueError("grader response did not include any known rubric scores")
+                if not isinstance(raw_feedback, dict):
+                    raw_feedback = {}
+
+                scores = {
+                    name: max(0.0, min(1.0, float(raw_scores.get(name, 0.0))))
+                    for name in rubrics
+                }
+                feedback = {
+                    name: str(raw_feedback.get(name, ""))
+                    for name in rubrics
+                }
+                total = sum(scores.values()) / len(scores) if scores else 0.0
+                self.last_source = f"llm:{provider_name}"
+                self.last_provider = provider_name
+                self.last_error = None
+                return total, scores, feedback
+            except Exception as exc:
+                message = ProviderCircuitBreaker.record_failure(provider_name, exc)
+                errors.append(f"{provider_name}: {message}")
+                logger.warning(
+                    "Provider %s failed for grading; trying fallback: %s",
+                    provider_name,
+                    message,
                 )
 
-            content = response.choices[0].message.content or "{}"
-            blob = _extract_json_blob(content)
-            payload = json.loads(blob or "{}")
-
-            raw_scores = payload.get("scores", {})
-            raw_feedback = payload.get("feedback", {})
-            if not isinstance(raw_scores, dict):
-                raise ValueError("grader response did not include a scores object")
-            if not any(name in raw_scores for name in rubrics):
-                raise ValueError("grader response did not include any known rubric scores")
-            if not isinstance(raw_feedback, dict):
-                raw_feedback = {}
-
-            scores = {
-                name: max(0.0, min(1.0, float(raw_scores.get(name, 0.0))))
-                for name in rubrics
-            }
-            feedback = {
-                name: str(raw_feedback.get(name, ""))
-                for name in rubrics
-            }
-            total = sum(scores.values()) / len(scores) if scores else 0.0
-            return total, scores, feedback
-        except Exception as exc:
-            self.last_error = f"{type(exc).__name__}: {exc}"
-            if "insufficient_quota" in str(exc) or "rate limit" in str(exc).lower():
-                # Avoid spamming a failing paid endpoint across every rubric call.
-                self._disabled = True
-                AgentGrader._provider_disabled_global = True
-            logger.warning(
-                "LLM grading failed, using deterministic fallback: %s",
-                self.last_error,
-            )
-            return None
+        self.last_error = "; ".join(errors) if errors else "no enabled providers"
+        logger.warning(
+            "LLM grading failed, using deterministic fallback: %s",
+            self.last_error,
+        )
+        return None

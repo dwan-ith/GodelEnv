@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 REPO_DIR="$(pwd)"
-PING_URL="http://localhost:8000"
+PING_URL="${PING_URL:-http://localhost:7860}"
 CURL_OUTPUT="curl_output.txt"
 DOCKER_BUILD_TIMEOUT=300
 CLEANUP_FILES=()

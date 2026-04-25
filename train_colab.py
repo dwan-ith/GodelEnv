@@ -11,20 +11,25 @@
 # ---
 
 # %% [markdown]
-# # GodelEnv 2.0 — Training Evidence Notebook
+# # GodelEnv 2.0 - Training Evidence Notebook
 #
-# This notebook demonstrates the full training pipeline for GodelEnv,
-# a recursive self-improvement environment where an LLM proposes
-# StrategyPatch mutations to its own reasoning policy.
+# This notebook runs the same compact-action training pipeline as `train.py`.
+# GodelEnv is a recursive self-improvement environment where the agent can either
+# improve the current answer directly or propose a `StrategyPatch` that mutates
+# its own reasoning policy.
 #
-# **Pipeline:**
-# 1. Collect prompts from the deterministic environment
-# 2. Warm-start a tiny language model with heuristic traces (SFT)
-# 3. Refine with Group Relative Policy Optimization (GRPO)
-# 4. Export loss / reward curves and before/after metrics
+# Pipeline:
+# 1. Collect prompts from the live environment
+# 2. Build a heuristic warm-start dataset
+# 3. Train a tiny local model with SFT
+# 4. Refine with GRPO
+# 5. Export loss, reward, and before/after plots plus a metrics JSON summary
 #
-# **Requirements:** run this notebook from the repo root, or let the first cell
-# clone and install the repo automatically when opened in Google Colab.
+# Reproducibility notes:
+# - The notebook defaults to deterministic grading and strategy evaluation.
+# - The tiny local model emits compact action tokens that the environment expands
+#   into full actions before verification.
+# - For the stronger hybrid path, switch the modes below from `deterministic` to `auto`.
 
 # %%
 from pathlib import Path
@@ -37,6 +42,9 @@ from dotenv import load_dotenv
 
 
 load_dotenv(override=False)
+os.environ.setdefault("WANDB_DISABLED", "true")
+os.environ.setdefault("WANDB_MODE", "disabled")
+os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
 
 
 def _in_colab() -> bool:
@@ -62,10 +70,14 @@ if _in_colab():
 def _restart_with_utf8_on_windows() -> None:
     # TRL reads some packaged templates via Path.read_text() without an explicit
     # encoding; on Windows this can default to cp1252 and crash with UnicodeDecodeError.
-    # The simplest robust fix is to restart with UTF-8 mode enabled.
+    # The simplest robust fix for script execution is to restart with UTF-8 mode
+    # enabled. Inside a notebook kernel, restarting via sys.argv exits the cell,
+    # so we skip the restart there.
     if os.name != "nt":
         return
     if os.environ.get("PYTHONUTF8") == "1":
+        return
+    if "ipykernel" in sys.modules:
         return
 
     env = os.environ.copy()
@@ -73,7 +85,30 @@ def _restart_with_utf8_on_windows() -> None:
     completed = subprocess.run([sys.executable, *sys.argv], env=env, check=False)
     raise SystemExit(completed.returncode)
 
+
 _restart_with_utf8_on_windows()
+
+
+def _force_utf8_path_reads_on_windows() -> None:
+    if os.name != "nt":
+        return
+    if os.environ.get("PYTHONUTF8") == "1":
+        return
+    if getattr(Path, "_godel_utf8_patch", False):
+        return
+
+    original_read_text = Path.read_text
+
+    def _read_text(self, *args, **kwargs):
+        if not args and "encoding" not in kwargs:
+            kwargs["encoding"] = "utf-8"
+        return original_read_text(self, *args, **kwargs)
+
+    Path.read_text = _read_text
+    Path._godel_utf8_patch = True
+
+
+_force_utf8_path_reads_on_windows()
 
 from godel_engine.rollout import collect_local_prompt_dataset
 from godel_engine.training_support import (
@@ -97,7 +132,7 @@ NUM_PROMPTS = 16
 SFT_STEPS = 20
 GRPO_STEPS = 10
 MAX_INPUT_LENGTH = 512
-MAX_NEW_TOKENS = 128
+MAX_NEW_TOKENS = 1
 OUTPUT_DIR = Path("artifacts/training_run")
 GRADING_MODE = os.getenv("GODEL_GRADING_MODE", "deterministic")
 STRATEGY_EVAL_MODE = os.getenv("GODEL_STRATEGY_EVAL_MODE", "deterministic")
@@ -120,15 +155,17 @@ supervised_examples = build_supervised_examples(prompt_data)
 
 print(f"Collected {len(prompt_data)} prompts across {len(TASKS)} task families")
 for task in TASKS:
-    count = sum(1 for p in prompt_data if p["task_type"] == task)
+    count = sum(1 for prompt in prompt_data if prompt["task_type"] == task)
     print(f"  {task}: {count} prompts")
 
 
 # %% [markdown]
 # ## 3. Build the Tiny Local Model
 #
-# We use a 2-layer GPT-2 (128-dim embeddings) as a proof-of-concept.
-# For production training, replace with Unsloth + Qwen2.5-7B on GPU.
+# We use a 2-layer GPT-2 proof-of-concept model for the local CPU run.
+# To keep the action space learnable, the model emits compact action tokens
+# that expand into full environment actions before scoring.
+# For larger-scale training, replace this with Unsloth + a stronger instruct model.
 
 # %%
 tokenizer = load_tokenizer()
@@ -136,7 +173,7 @@ model = build_tiny_model(
     tokenizer,
     max_length=max(MAX_INPUT_LENGTH + MAX_NEW_TOKENS + 64, 384),
 )
-total_params = sum(p.numel() for p in model.parameters())
+total_params = sum(parameter.numel() for parameter in model.parameters())
 print(f"Model: GPT-2 tiny ({total_params:,} parameters)")
 
 
@@ -150,23 +187,33 @@ baseline_metrics = evaluate_model(
     prompt_data,
     max_new_tokens=MAX_NEW_TOKENS,
     max_input_length=MAX_INPUT_LENGTH,
+    policy_mode="random",
+    seed=42,
 )
-print(f"Baseline: mean_reward={baseline_metrics['mean_reward']:.4f}, mean_score={baseline_metrics['mean_score']:.4f}")
 print(
+    f"Baseline: mean_reward={baseline_metrics['mean_reward']:.4f}, "
+    f"mean_score={baseline_metrics['mean_score']:.4f}"
+)
+print(
+    "Structured policy: "
+    f"structured_action_rate={baseline_metrics.get('structured_action_rate', 0.0):.2%}, "
     "Patch behavior: "
     f"proposal_rate={baseline_metrics.get('strategy_patch_rate', 0.0):.2%}, "
     f"acceptance_rate={baseline_metrics.get('patch_acceptance_rate', 0.0):.2%}, "
     f"mean_patch_delta={baseline_metrics.get('mean_patch_improvement', 0.0):+.4f}"
 )
-for ep in baseline_metrics["episodes"][:4]:
-    print(f"  {ep['task_type']:25s} score={ep['score']:.3f}  reward={ep['reward']:+.3f}")
+for episode in baseline_metrics["episodes"][:4]:
+    print(
+        f"  {episode['task_type']:25s} "
+        f"score={episode['score']:.3f}  reward={episode['reward']:+.3f}"
+    )
 
 
 # %% [markdown]
 # ## 5. Warm-Start with Supervised Traces (SFT)
 #
-# We train the tiny model on heuristic-generated solutions to teach it the
-# output format and basic task structure before reinforcement learning.
+# The warm start teaches the tiny model the compact action format and the
+# basic alignment between prompt type and action choice.
 
 # %%
 sft_logs = run_sft(
@@ -189,10 +236,9 @@ if sft_loss_entries:
 # %% [markdown]
 # ## 6. Refine with Group Relative Policy Optimization (GRPO)
 #
-# GRPO generates multiple completions per prompt, scores each via the
-# environment's multi-channel reward (task_score_delta, format_compliance,
-# anti_hack_penalty, patch_quality), and updates the policy to favor
-# higher-reward completions.
+# GRPO uses the environment reward directly. The local rollout samples among the
+# allowed compact action tokens, expands them into real actions, and updates the
+# policy toward higher-reward choices.
 
 # %%
 grpo_logs = run_grpo(
@@ -224,24 +270,41 @@ trained_metrics = evaluate_model(
     prompt_data,
     max_new_tokens=MAX_NEW_TOKENS,
     max_input_length=MAX_INPUT_LENGTH,
+    policy_mode="model",
+    seed=42,
 )
-print(f"Trained: mean_reward={trained_metrics['mean_reward']:.4f}, mean_score={trained_metrics['mean_score']:.4f}")
-print(f"\nImprovement:")
-print(f"  Reward: {baseline_metrics['mean_reward']:.4f} → {trained_metrics['mean_reward']:.4f} "
-      f"(Δ={trained_metrics['mean_reward'] - baseline_metrics['mean_reward']:+.4f})")
-print(f"  Score:  {baseline_metrics['mean_score']:.4f} → {trained_metrics['mean_score']:.4f} "
-      f"(Δ={trained_metrics['mean_score'] - baseline_metrics['mean_score']:+.4f})")
+print(
+    f"Trained: mean_reward={trained_metrics['mean_reward']:.4f}, "
+    f"mean_score={trained_metrics['mean_score']:.4f}"
+)
+print("\nImprovement:")
+print(
+    f"  Reward: {baseline_metrics['mean_reward']:.4f} -> {trained_metrics['mean_reward']:.4f} "
+    f"(delta={trained_metrics['mean_reward'] - baseline_metrics['mean_reward']:+.4f})"
+)
+print(
+    f"  Score:  {baseline_metrics['mean_score']:.4f} -> {trained_metrics['mean_score']:.4f} "
+    f"(delta={trained_metrics['mean_score'] - baseline_metrics['mean_score']:+.4f})"
+)
+print(
+    "  Structured action rate: "
+    f"{baseline_metrics.get('structured_action_rate', 0.0):.2%} -> "
+    f"{trained_metrics.get('structured_action_rate', 0.0):.2%}"
+)
 print(
     "  Patch proposal rate: "
-    f"{baseline_metrics.get('strategy_patch_rate', 0.0):.2%} → {trained_metrics.get('strategy_patch_rate', 0.0):.2%}"
+    f"{baseline_metrics.get('strategy_patch_rate', 0.0):.2%} -> "
+    f"{trained_metrics.get('strategy_patch_rate', 0.0):.2%}"
 )
 print(
     "  Patch acceptance rate: "
-    f"{baseline_metrics.get('patch_acceptance_rate', 0.0):.2%} → {trained_metrics.get('patch_acceptance_rate', 0.0):.2%}"
+    f"{baseline_metrics.get('patch_acceptance_rate', 0.0):.2%} -> "
+    f"{trained_metrics.get('patch_acceptance_rate', 0.0):.2%}"
 )
 print(
     "  Mean patch delta: "
-    f"{baseline_metrics.get('mean_patch_improvement', 0.0):+.4f} → {trained_metrics.get('mean_patch_improvement', 0.0):+.4f}"
+    f"{baseline_metrics.get('mean_patch_improvement', 0.0):+.4f} -> "
+    f"{trained_metrics.get('mean_patch_improvement', 0.0):+.4f}"
 )
 
 
@@ -268,9 +331,14 @@ summary = {
     "improvement": {
         "reward_delta": trained_metrics["mean_reward"] - baseline_metrics["mean_reward"],
         "score_delta": trained_metrics["mean_score"] - baseline_metrics["mean_score"],
-        "patch_rate_delta": trained_metrics.get("strategy_patch_rate", 0.0) - baseline_metrics.get("strategy_patch_rate", 0.0),
-        "patch_acceptance_delta": trained_metrics.get("patch_acceptance_rate", 0.0) - baseline_metrics.get("patch_acceptance_rate", 0.0),
-        "mean_patch_improvement_delta": trained_metrics.get("mean_patch_improvement", 0.0) - baseline_metrics.get("mean_patch_improvement", 0.0),
+        "structured_action_rate_delta": trained_metrics.get("structured_action_rate", 0.0)
+        - baseline_metrics.get("structured_action_rate", 0.0),
+        "patch_rate_delta": trained_metrics.get("strategy_patch_rate", 0.0)
+        - baseline_metrics.get("strategy_patch_rate", 0.0),
+        "patch_acceptance_delta": trained_metrics.get("patch_acceptance_rate", 0.0)
+        - baseline_metrics.get("patch_acceptance_rate", 0.0),
+        "mean_patch_improvement_delta": trained_metrics.get("mean_patch_improvement", 0.0)
+        - baseline_metrics.get("mean_patch_improvement", 0.0),
     },
     "artifacts": {
         "loss_curve": str(plots["loss_curve"]),
@@ -280,13 +348,19 @@ summary = {
     },
 }
 (OUTPUT_DIR / "metrics.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+try:
+    import wandb
+
+    wandb.finish(quiet=True)
+except Exception:
+    pass
 print("Artifacts saved:")
 for name, path in summary["artifacts"].items():
     print(f"  {name}: {path}")
 
 
 # %% [markdown]
-# ## 9. Training Evidence — Inline Plots
+# ## 9. Training Evidence - Inline Plots
 
 # %%
 from IPython.display import Image, display

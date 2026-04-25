@@ -108,6 +108,10 @@ class PatchDecision(BaseModel):
         default=0,
         description="Number of tasks where the child performed worse.",
     )
+    diagnostics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Non-secret debugging details about strategy evaluation sources and provider behavior.",
+    )
 
 
 # ── Action ────────────────────────────────────────────────────────────

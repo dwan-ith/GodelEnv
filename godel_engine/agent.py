@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from typing import Dict
 
 from dotenv import load_dotenv
@@ -14,6 +13,10 @@ from openai import AsyncOpenAI
 
 from godel_engine.heuristic_policy import build_heuristic_action
 from godel_engine.models import EditType, GodelAction, StrategyPatch
+from godel_engine.provider_runtime import (
+    ProviderCircuitBreaker,
+    load_provider_configs,
+)
 
 
 load_dotenv(override=False)
@@ -24,27 +27,27 @@ class AutoAgent:
     """LLM-backed agent with a deterministic local fallback."""
 
     def __init__(self, max_concurrent: int = 5, timeout: int = 60) -> None:
-        self.api_key = (
-            os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY")
-        )
-        self.base_url = os.getenv("API_BASE_URL")
-        if self.api_key and not self.base_url and os.getenv("HF_TOKEN"):
-            self.base_url = "https://router.huggingface.co/v1"
-        default_model = (
-            "Qwen/Qwen2.5-7B-Instruct" if self.base_url else "gpt-4o-mini"
-        )
-        self.model_name = os.getenv("MODEL_NAME", default_model)
-
-        if self.api_key:
-            self.client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url if self.base_url else None,
+        self.providers = load_provider_configs()
+        self.clients: list[tuple[str, str, AsyncOpenAI]] = []
+        for provider in self.providers:
+            if not provider.api_key:
+                continue
+            self.clients.append(
+                (
+                    provider.name,
+                    provider.model_name,
+                    AsyncOpenAI(
+                        api_key=provider.api_key,
+                        base_url=provider.base_url if provider.base_url else None,
+                    ),
+                )
             )
-        else:
-            self.client = None
 
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self.timeout = timeout
+        self.last_source = "deterministic"
+        self.last_provider: str | None = None
+        self.last_error: str | None = None
 
     async def act(
         self,
@@ -56,7 +59,12 @@ class AutoAgent:
         recent_failures: list[str] | None = None,
         downstream_scores: Dict[str, float] | None = None,
     ) -> GodelAction:
-        if not self.client:
+        self.last_source = "deterministic"
+        self.last_provider = None
+        self.last_error = None
+
+        if not self.clients:
+            self.last_error = "no API client configured"
             return build_heuristic_action(
                 task_prompt,
                 task_type,
@@ -104,47 +112,67 @@ For recursive self-improvement you may also include:
 }}"""
         user_prompt = f"TASK PROMPT:\n{task_prompt}\n\nCURRENT SOLUTION:\n{current_solution}"
 
-        try:
-            async with self.semaphore:
-                response = await asyncio.wait_for(
-                    self.client.chat.completions.create(
-                        model=self.model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
+        errors: list[str] = []
+        for provider_name, model_name, client in self.clients:
+            if ProviderCircuitBreaker.is_disabled(provider_name):
+                errors.append(
+                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name)})"
+                )
+                continue
+
+            try:
+                async with self.semaphore:
+                    response = await asyncio.wait_for(
+                        client.chat.completions.create(
+                            model=model_name,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            response_format={"type": "json_object"},
+                            max_tokens=2048,
+                        ),
+                        timeout=self.timeout,
+                    )
+
+                content = (response.choices[0].message.content or "").strip()
+                data = json.loads(content)
+                patch = None
+                if "improved_strategy" in data:
+                    patch = StrategyPatch(
+                        improved_strategy=str(data.get("improved_strategy", "")),
+                        diff_description=str(data.get("diff_description", "")),
+                        hypothesis=str(data.get("hypothesis", "")),
+                        target_weaknesses=[
+                            str(item) for item in data.get("target_weaknesses", [])
                         ],
-                        response_format={"type": "json_object"},
-                        max_tokens=2048,
-                    ),
-                    timeout=self.timeout,
+                    )
+
+                self.last_source = f"llm:{provider_name}"
+                self.last_provider = provider_name
+                self.last_error = None
+                return GodelAction(
+                    solution=str(data.get("solution", current_solution)),
+                    edit_type=self._parse_edit_type(data.get("edit_type", "rewrite")),
+                    strategy_note=str(data.get("strategy_note", "LLM improvement")),
+                    strategy_patch=patch,
+                )
+            except Exception as exc:
+                message = ProviderCircuitBreaker.record_failure(provider_name, exc)
+                errors.append(f"{provider_name}: {message}")
+                logger.warning(
+                    "Provider %s failed for agent action; trying fallback: %s",
+                    provider_name,
+                    message,
                 )
 
-            content = response.choices[0].message.content.strip()
-            data = json.loads(content)
-            patch = None
-            if "improved_strategy" in data:
-                patch = StrategyPatch(
-                    improved_strategy=str(data.get("improved_strategy", "")),
-                    diff_description=str(data.get("diff_description", "")),
-                    hypothesis=str(data.get("hypothesis", "")),
-                    target_weaknesses=[
-                        str(item) for item in data.get("target_weaknesses", [])
-                    ],
-                )
-
-            return GodelAction(
-                solution=str(data.get("solution", current_solution)),
-                edit_type=self._parse_edit_type(data.get("edit_type", "rewrite")),
-                strategy_note=str(data.get("strategy_note", "LLM improvement")),
-                strategy_patch=patch,
-            )
-        except Exception as exc:
-            logger.warning("Falling back to heuristic agent after API failure: %s", exc)
-            return build_heuristic_action(
-                task_prompt,
-                task_type,
-                strategy_text=strategy_text,
-            )
+        self.last_source = "deterministic_fallback"
+        self.last_error = "; ".join(errors) if errors else "no enabled providers"
+        return build_heuristic_action(
+            task_prompt,
+            task_type,
+            strategy_text=strategy_text,
+        )
 
     def _parse_edit_type(self, value: str) -> EditType:
         try:

@@ -14,7 +14,7 @@ COPY pyproject.toml uv.lock ./
 # `pyproject.toml` is not a requirements file; install the explicit server deps
 # here, then install the local package after the source has been copied.
 RUN uv pip install --system \
-    "openenv-core>=0.2.0" \
+    "openenv-core>=0.2.3" \
     "pydantic>=2.0" \
     "httpx>=0.20.0" \
     "openai>=1.0.0" \

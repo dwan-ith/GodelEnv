@@ -10,7 +10,14 @@ from urllib.parse import urlparse, urlunparse
 
 import websockets
 
-from godel_engine.models import GodelAction, GodelObservation, GodelState, GodelStepResult
+from godel_engine.models import (
+    GodelAction,
+    GodelObservation,
+    GodelState,
+    GodelStepResult,
+    PatchDecision,
+    RewardBreakdown,
+)
 
 
 def _to_ws_url(base_url: str) -> str:
@@ -23,15 +30,20 @@ def _step_result_from_ws(payload: dict) -> GodelStepResult:
     data = payload["data"]
     obs = data["observation"]
     done = bool(data.get("done", False))
+    metadata = obs.get("metadata", {}) or {}
+    reward_breakdown = obs.get("reward_breakdown") or metadata.get("reward_breakdown") or {}
+    patch_decision = obs.get("patch_decision") or metadata.get("patch_decision")
     return GodelStepResult(
         observation=GodelObservation(**obs),
         reward=float(data.get("reward", 0.0) or 0.0),
+        reward_breakdown=RewardBreakdown(**reward_breakdown),
         terminated=done,
         truncated=False,
         info={
             "grading_source": obs.get("grading_source"),
             "grading_error": obs.get("grading_error"),
         },
+        patch_decision=PatchDecision(**patch_decision) if patch_decision else None,
     )
 
 

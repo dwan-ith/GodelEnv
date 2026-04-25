@@ -7,12 +7,15 @@ dashboard demo, such as server-side AutoAgent action generation.
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from godel_engine.agent import AutoAgent
 from godel_engine.environment import GodelEnvironment
 from godel_engine.models import GodelAction
+from godel_engine.provider_runtime import describe_provider_configs
 
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -44,3 +47,13 @@ async def demo_act(req: DemoActRequest) -> GodelAction:
         recent_failures=req.recent_failures,
         downstream_scores=req.downstream_scores,
     )
+
+
+@router.get("/provider-status")
+async def provider_status() -> dict:
+    """Return non-secret hybrid runtime diagnostics for the dashboard/demo."""
+    return {
+        "grading_mode": os.getenv("GODEL_GRADING_MODE", "auto"),
+        "strategy_eval_mode": os.getenv("GODEL_STRATEGY_EVAL_MODE", "auto"),
+        "providers": describe_provider_configs(),
+    }

@@ -18,6 +18,12 @@ from typing import Any, Dict, List, Optional
 from godel_engine.async_utils import run_async
 from godel_engine.environment import GodelEnvironment
 from godel_engine.models import EditType, GodelAction, StrategyPatch
+from godel_engine.symbolic_actions import (
+    ACTION_DESCRIPTIONS,
+    allowed_action_tokens,
+    build_action_from_token,
+    find_action_token,
+)
 
 
 logger = logging.getLogger("godel_env.rollout")
@@ -26,6 +32,15 @@ logger = logging.getLogger("godel_env.rollout")
 META_BLOCK_RE = re.compile(
     r"<godel_meta>\s*task_type=(?P<task_type>[^\n]+)\s*task_id=(?P<task_id>[^\n]+)\s*</godel_meta>",
     re.IGNORECASE,
+)
+
+TASK_BLOCK_RE = re.compile(
+    r"TASK:\n(?P<task_prompt>.*?)\n\nCURRENT SOLUTION:\n",
+    re.DOTALL,
+)
+CURRENT_SOLUTION_RE = re.compile(
+    r"CURRENT SOLUTION:\n(?P<current_solution>.*?)\n\nLATEST FEEDBACK:\n",
+    re.DOTALL,
 )
 
 
@@ -47,7 +62,45 @@ def _extract_json_blob(text: str) -> str | None:
     return None
 
 
-def parse_completion_to_action(completion: str) -> GodelAction:
+def extract_task_prompt(prompt: str) -> str:
+    match = TASK_BLOCK_RE.search(prompt)
+    if not match:
+        raise ValueError("Prompt is missing the TASK block.")
+    return match.group("task_prompt").strip()
+
+
+def extract_current_solution(prompt: str) -> str:
+    match = CURRENT_SOLUTION_RE.search(prompt)
+    if not match:
+        raise ValueError("Prompt is missing the CURRENT SOLUTION block.")
+    return match.group("current_solution").strip()
+
+
+def _strategy_digest(strategy_text: str) -> str:
+    lowered = strategy_text.lower()
+    flags = [
+        ("decompose", ["decompose", "break the problem"]),
+        ("evidence", ["evidence", "support"]),
+        ("counter", ["counterargument", "alternative hypothesis", "alternative"]),
+        ("uncertainty", ["uncertainty", "confidence"]),
+        ("verify", ["verify", "self-check", "verification"]),
+        ("reflect", ["reflect", "revision", "lessons learned"]),
+    ]
+    parts = []
+    for name, markers in flags:
+        value = "yes" if any(marker in lowered for marker in markers) else "no"
+        parts.append(f"{name}={value}")
+    return ", ".join(parts)
+
+
+def parse_completion_to_action(
+    completion: str,
+    *,
+    task_prompt: str = "",
+    task_type: str = "",
+    current_solution: str = "",
+    strategy_text: str = "",
+) -> GodelAction:
     """Parse a model completion into an action object.
 
     GodelEnv 2.0: if the JSON contains an 'improved_strategy' key,
@@ -84,6 +137,16 @@ def parse_completion_to_action(completion: str) -> GodelAction:
             )
         except Exception:
             logger.debug("Falling back to raw completion after JSON parse failure.")
+
+    action_token = find_action_token(completion)
+    if action_token and task_type:
+        return build_action_from_token(
+            action_token,
+            task_prompt=task_prompt,
+            task_type=task_type,
+            current_solution=current_solution,
+            strategy_text=strategy_text,
+        )
 
     code_match = re.search(r"```(?:python|json)?\s*\n?(.*?)```", completion, re.DOTALL)
     if code_match:
@@ -149,19 +212,30 @@ def build_prompt(
         if task_type == "strategy_optimization"
         else ""
     )
+    action_tokens = allowed_action_tokens(task_type)
+    action_menu = "\n".join(
+        f"  - {token}: {ACTION_DESCRIPTIONS[token]}"
+        for token in action_tokens
+    )
+    strategy_digest = _strategy_digest(strategy_text) if strategy_text else "n/a"
+    score_digest = ", ".join(
+        f"{name}={value:.2f}" for name, value in sorted((downstream_scores or {}).items())
+    )
+    failure_digest = "; ".join((recent_failures or [])[-2:])
 
     return (
         f"{meta}"
-        "You are an agent inside GodelEnv. Your goal is recursive self-improvement.\n"
-        "You can either:\n"
-        "  A) Propose a strategy patch (include 'improved_strategy' in your JSON)\n"
-        "  B) Rewrite the solution directly (include 'solution' in your JSON)\n\n"
-        "Return valid JSON with the appropriate keys.\n\n"
+        "Choose exactly one action token for this GodelEnv state.\n"
+        "ACTION MENU:\n"
+        f"{action_menu}\n\n"
         f"{preferred_mode}"
-        f"{strategy_block}"
         f"TASK:\n{task_prompt}\n\n"
         f"CURRENT SOLUTION:\n{current_solution}\n\n"
-        f"LATEST FEEDBACK:\n{rubric_feedback}\n"
+        f"STRATEGY DIGEST: {strategy_digest}\n"
+        f"DOWNSTREAM SCORES: {score_digest or 'n/a'}\n"
+        f"RECENT FAILURES: {failure_digest or 'n/a'}\n\n"
+        f"LATEST FEEDBACK:\n{rubric_feedback}\n\n"
+        "ACTION TOKEN:\n"
     )
 
 
@@ -250,28 +324,42 @@ def make_local_grpo_rollout(max_new_tokens: int = 512):
         inputs = {key: value.to(trainer.model.device) for key, value in inputs.items()}
 
         with torch.no_grad():
-            outputs = trainer.model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                pad_token_id=tokenizer.pad_token_id,
+            model_outputs = trainer.model(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
             )
 
-        # IMPORTANT: prompt length is per-sample (because of padding).
         attention_mask = inputs.get("attention_mask")
         if attention_mask is None:
             prompt_lengths = [inputs["input_ids"].shape[1]] * len(prompts)
         else:
             prompt_lengths = attention_mask.sum(dim=1).tolist()
 
-        completion_id_tensors: list[Any] = []
+        completion_ids_out: list[list[int]] = []
+        logprobs_out: list[list[float]] = []
         completions: list[str] = []
-        for i, prompt_len in enumerate(prompt_lengths):
-            comp_ids = outputs[i, prompt_len:]
-            completion_id_tensors.append(comp_ids)
-            completions.append(tokenizer.decode(comp_ids, skip_special_tokens=True))
+        logits_all = model_outputs.logits
+
+        for i, prompt in enumerate(prompts):
+            meta = parse_prompt_metadata(prompt)
+            action_ids = [
+                tokenizer.convert_tokens_to_ids(token)
+                for token in allowed_action_tokens(meta["task_type"])
+            ]
+            prompt_len = int(prompt_lengths[i])
+            next_token_logits = logits_all[i, prompt_len - 1, :]
+            full_log_probs = torch.log_softmax(next_token_logits, dim=-1)
+
+            filtered_logits = next_token_logits[action_ids] / 0.9
+            filtered_probs = torch.softmax(filtered_logits, dim=-1)
+            sampled_index = torch.multinomial(filtered_probs, num_samples=1).item()
+            chosen_token_id = int(action_ids[sampled_index])
+
+            completion_ids_out.append([chosen_token_id])
+            logprobs_out.append([float(full_log_probs[chosen_token_id].item())])
+            completions.append(
+                tokenizer.decode([chosen_token_id], skip_special_tokens=False)
+            )
 
         all_rewards = {
             "task_score_delta": [],
@@ -287,8 +375,15 @@ def make_local_grpo_rollout(max_new_tokens: int = 512):
                 env = GodelEnvironment()
                 try:
                     meta = parse_prompt_metadata(prompt)
+                    task_prompt = extract_task_prompt(prompt)
+                    current_solution = extract_current_solution(prompt)
                     await env.reset(task_type=meta["task_type"], task_id=meta["task_id"])
-                    action = parse_completion_to_action(completion)
+                    action = parse_completion_to_action(
+                        completion,
+                        task_prompt=task_prompt,
+                        task_type=meta["task_type"],
+                        current_solution=current_solution,
+                    )
                     result = await env.step(action)
                     channels = extract_reward_channels(result)
                     for key in all_rewards:
@@ -299,34 +394,6 @@ def make_local_grpo_rollout(max_new_tokens: int = 512):
                         all_rewards[key].append(0.0)
 
         run_async(_step_all())
-
-        # Compute per-token logprobs for each completion
-        completion_ids_out: list[list[int]] = []
-        logprobs_out: list[list[float]] = []
-
-        with torch.no_grad():
-            model_outputs = trainer.model(
-                input_ids=outputs,
-                attention_mask=(outputs != tokenizer.pad_token_id).long()
-                if tokenizer.pad_token_id is not None
-                else torch.ones_like(outputs),
-            )
-            logits_all = model_outputs.logits  # (B, T, V)
-            log_probs_all = torch.log_softmax(logits_all, dim=-1)
-
-            for i, prompt_len in enumerate(prompt_lengths):
-                comp_ids = completion_id_tensors[i]
-                completion_ids_out.append(comp_ids.tolist())
-                if comp_ids.numel() == 0:
-                    logprobs_out.append([])
-                    continue
-
-                token_positions = torch.arange(prompt_len, prompt_len + comp_ids.shape[0], device=outputs.device)
-                logits_positions = token_positions - 1
-                chosen_log_probs = log_probs_all[i, logits_positions, :].gather(
-                    1, comp_ids.unsqueeze(-1)
-                ).squeeze(-1)
-                logprobs_out.append(chosen_log_probs.tolist())
 
         return {
             "prompt_ids": inputs["input_ids"].tolist(),

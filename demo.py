@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import sys
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -31,9 +30,15 @@ logger = logging.getLogger("demo")
 
 # Import env components
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from godel_engine.client import GodelEngineEnv
 from godel_engine.environment import GodelEnvironment
 from godel_engine.agent import AutoAgent
-from godel_engine.models import GodelAction, EditType
+
+
+def get_task_rubrics(task_type: str) -> dict[str, str]:
+    task_cls = GodelEnvironment.TASKS.get(task_type)
+    task = task_cls() if task_cls else None
+    return task._get_rubrics() if task else {}
 
 
 def print_banner(text: str, width: int = 70):
@@ -52,18 +57,19 @@ def print_reward_breakdown(breakdown):
 
 
 async def run_demo_episode(
-    env: GodelEnvironment,
+    env_client,
     agent: AutoAgent,
     task_type: str,
     label: str,
     seed: int = 42,
 ) -> dict:
     """Run a single demo episode and return metrics."""
-    result = await env.reset(task_type=task_type, seed=seed)
+    result = await env_client.reset(task_type=task_type)
     obs = result.observation
+    initial_score = obs.total_score
 
     print(f"\n  [{label}] Task: {task_type} | Difficulty: {obs.difficulty}")
-    print(f"  [{label}] Initial score: {obs.total_score:.3f}")
+    print(f"  [{label}] Initial score: {initial_score:.3f}")
     print(f"  [{label}] Prompt: {obs.task_prompt[:80]}...")
 
     steps = 0
@@ -71,13 +77,13 @@ async def run_demo_episode(
         action = await agent.act(
             task_prompt=obs.task_prompt,
             current_solution=obs.current_solution,
-            rubrics=env.current_task._get_rubrics(),
+            rubrics=get_task_rubrics(task_type),
             task_type=task_type,
             strategy_text=obs.current_strategy,
             recent_failures=obs.recent_failures,
             downstream_scores=obs.downstream_scores,
         )
-        result = await env.step(action)
+        result = await env_client.step(action)
         obs = result.observation
         steps += 1
 
@@ -97,29 +103,34 @@ async def run_demo_episode(
     return {
         "label": label,
         "task": task_type,
-        "initial_score": env.initial_score,
+        "initial_score": initial_score,
         "final_score": obs.total_score,
-        "delta": obs.total_score - env.initial_score,
+        "delta": obs.total_score - initial_score,
         "steps": steps,
         "reason": result.info.get("reason", "unknown"),
-        "difficulty": env.episode_difficulty,
+        "difficulty": obs.difficulty,
     }
 
 
 async def main(args):
     print_banner("GODEL ENV -- BEFORE / AFTER DEMO")
 
-    env = GodelEnvironment(seed=42)
     agent = AutoAgent()
 
     tasks = ["factual_qa", "code_improvement", "strategy_optimization"]
     results = []
 
-    # Run baseline episodes
-    print_banner("BASELINE MODEL EPISODES")
-    for task in tasks:
-        metrics = await run_demo_episode(env, agent, task, "BASE", seed=42)
-        results.append(metrics)
+    async def _run_with_client(env_client) -> None:
+        print_banner("BASELINE MODEL EPISODES")
+        for task in tasks:
+            metrics = await run_demo_episode(env_client, agent, task, "BASE", seed=42)
+            results.append(metrics)
+
+    if args.space_url:
+        async with GodelEngineEnv(args.space_url) as env_client:
+            await _run_with_client(env_client)
+    else:
+        await _run_with_client(GodelEnvironment(seed=42))
 
     # Summary table
     print("\n")
@@ -130,15 +141,15 @@ async def main(args):
         print(f"  {r['label']:<10} {r['task']:<25} {r['initial_score']:>6.3f} "
               f"{r['final_score']:>6.3f} {r['delta']:>+7.3f} {r['steps']:>6} {r['reason']:<15}")
 
-    # Curriculum stats
-    print(f"\n  Curriculum State:")
-    stats = env.curriculum.get_stats()
-    for key, val in stats.items():
-        print(f"    {key}: {val}")
+    if not args.space_url:
+        print(f"\n  Curriculum State:")
+        stats = GodelEnvironment(seed=42).curriculum.get_stats()
+        for key, val in stats.items():
+            print(f"    {key}: {val}")
 
     print("\n" + "=" * 70)
     print("  Demo complete!")
-    print("  To train a model: python train.py --dry-run")
+    print("  To train a model: python train.py")
     print("=" * 70)
 
 

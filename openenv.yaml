@@ -179,21 +179,32 @@ training:
 inference:
   default_mode: hybrid
   llm_first_with_fallback: true
+  hybrid_smoke_script: hybrid_smoke.py
   default_env_modes:
     grading: GODEL_GRADING_MODE=auto
     strategy_eval: GODEL_STRATEGY_EVAL_MODE=auto
-  openai_compatible:
+    provider_order: GODEL_PROVIDER_ORDER=openai,custom,huggingface
+  openai:
     enabled_by_env:
       - OPENAI_API_KEY
+    base_url_env: OPENAI_API_BASE_URL
+    model_env: OPENAI_MODEL_NAME
+    fallback_model_env: MODEL_NAME
+  custom_openai_compatible:
+    enabled_by_env:
       - API_KEY
+      - API_BASE_URL
     base_url_env: API_BASE_URL
-    model_env: MODEL_NAME
-  optional_hf_router:
-    enabled_by_env: GODEL_STRATEGY_EVAL_MODE=auto
-    base_url_env: API_BASE_URL
+    model_env: CUSTOM_MODEL_NAME
+    fallback_model_env: MODEL_NAME
+  huggingface_router:
+    enabled_by_env:
+      - HF_TOKEN
+    base_url_env: HF_API_BASE_URL
     recommended_base_url: https://router.huggingface.co/v1
     token_env: HF_TOKEN
-    model_env: MODEL_NAME
+    model_env: HF_MODEL_NAME
+    fallback_model_env: MODEL_NAME
     recommended_model: Qwen/Qwen2.5-7B-Instruct
 
 api:
@@ -202,3 +213,4 @@ api:
   state: { method: GET, path: /state, returns: GodelState }
   websocket: { method: WS, path: /ws, description: "Persistent session API for multi-step episodes." }
   demo_act: { method: POST, path: /demo/act, body: "{ task_prompt, current_solution, task_type, current_strategy?, recent_failures?, downstream_scores? }" }
+  demo_provider_status: { method: GET, path: /demo/provider-status, description: "Non-secret hybrid provider diagnostics for debugging auto mode." }

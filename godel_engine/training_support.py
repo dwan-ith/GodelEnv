@@ -8,41 +8,49 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
 from godel_engine.async_utils import run_async
-
-def extract_task_prompt(prompt: str) -> str:
-    return prompt.split("TASK:\n", 1)[1].split("\n\nCURRENT SOLUTION:\n", 1)[0]
+from godel_engine.rollout import (
+    extract_current_solution,
+    extract_task_prompt,
+    parse_completion_to_action,
+)
+from godel_engine.symbolic_actions import (
+    ACTION_DESCRIPTIONS,
+    allowed_action_tokens,
+    preferred_action_token,
+)
 
 
 def build_supervised_examples(prompt_data: list[dict[str, str]]) -> list[dict[str, str]]:
-    from godel_engine.heuristic_policy import build_heuristic_action
-
     examples: list[dict[str, str]] = []
     for item in prompt_data:
-        task_prompt = extract_task_prompt(item["prompt"])
-        action = build_heuristic_action(
-            task_prompt,
-            item["task_type"],
-            strategy_text=item.get("strategy_text"),
+        completion = preferred_action_token(item["task_type"])
+        examples.append(
+            {
+                "prompt": item["prompt"],
+                "completion": completion,
+                "text": item["prompt"] + completion,
+            }
         )
-        completion = json.dumps(action.model_dump(mode="json"))
-        examples.append({"text": item["prompt"] + completion})
     return examples
 
 
 def load_tokenizer():
     from transformers import AutoTokenizer
 
+    compact_tokens = list(ACTION_DESCRIPTIONS)
     try:
         tokenizer = AutoTokenizer.from_pretrained("gpt2", local_files_only=True)
     except Exception:
         tokenizer = AutoTokenizer.from_pretrained("gpt2")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.add_special_tokens({"additional_special_tokens": compact_tokens})
     return tokenizer
 
 
@@ -60,7 +68,9 @@ def build_tiny_model(tokenizer, *, max_length: int = 512):
         eos_token_id=tokenizer.eos_token_id,
         pad_token_id=tokenizer.pad_token_id,
     )
-    return GPT2LMHeadModel(config)
+    model = GPT2LMHeadModel(config)
+    model.resize_token_embeddings(len(tokenizer))
+    return model
 
 
 def run_sft(
@@ -82,17 +92,48 @@ def run_sft(
     )
 
     def tokenize(batch):
-        encoded = tokenizer(
-            batch["text"],
-            truncation=True,
-            padding="max_length",
-            max_length=max_length,
-        )
-        encoded["labels"] = [ids[:] for ids in encoded["input_ids"]]
-        return encoded
+        input_ids_batch = []
+        attention_masks = []
+        labels_batch = []
+
+        prompts = batch["prompt"]
+        completions = batch["completion"]
+
+        for prompt, completion in zip(prompts, completions):
+            combined = prompt + completion
+            encoded = tokenizer(
+                combined,
+                truncation=True,
+                padding="max_length",
+                max_length=max_length,
+            )
+            prompt_only = tokenizer(
+                prompt,
+                truncation=True,
+                max_length=max_length,
+                add_special_tokens=True,
+            )
+            prompt_length = min(len(prompt_only["input_ids"]), max_length)
+            labels = encoded["input_ids"][:]
+
+            for idx in range(prompt_length):
+                labels[idx] = -100
+            for idx, mask in enumerate(encoded["attention_mask"]):
+                if mask == 0:
+                    labels[idx] = -100
+
+            input_ids_batch.append(encoded["input_ids"])
+            attention_masks.append(encoded["attention_mask"])
+            labels_batch.append(labels)
+
+        return {
+            "input_ids": input_ids_batch,
+            "attention_mask": attention_masks,
+            "labels": labels_batch,
+        }
 
     dataset = Dataset.from_list(supervised_examples).map(
-        tokenize, batched=True, remove_columns=["text"]
+        tokenize, batched=True, remove_columns=["prompt", "completion", "text"]
     )
     args = TrainingArguments(
         output_dir=str(output_dir),
@@ -184,13 +225,15 @@ def evaluate_model(
     *,
     max_new_tokens: int = 64,
     max_input_length: int = 256,
+    policy_mode: str = "model",
+    seed: int = 42,
 ) -> dict[str, Any]:
     import torch
 
     from godel_engine.environment import GodelEnvironment
-    from godel_engine.rollout import parse_completion_to_action
 
     records: list[dict[str, Any]] = []
+    chooser = random.Random(seed)
 
     async def _run() -> None:
         for item in prompt_data:
@@ -204,18 +247,46 @@ def evaluate_model(
             )
             inputs = {name: tensor.to(model.device) for name, tensor in inputs.items()}
             with torch.no_grad():
-                output = model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=False,
-                    pad_token_id=tokenizer.pad_token_id,
+                output = model(
+                    input_ids=inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
                 )
-            completion = tokenizer.decode(
-                output[0][inputs["input_ids"].shape[1] :],
-                skip_special_tokens=True,
+            prompt_length = int(inputs["attention_mask"].sum(dim=1).item())
+            next_token_logits = output.logits[0, prompt_length - 1, :]
+            action_ids = [
+                tokenizer.convert_tokens_to_ids(token)
+                for token in allowed_action_tokens(item["task_type"])
+            ]
+            if policy_mode == "random":
+                chosen_token_id = int(chooser.choice(action_ids))
+            else:
+                filtered_logits = next_token_logits[action_ids]
+                chosen_index = int(filtered_logits.argmax().item())
+                chosen_token_id = int(action_ids[chosen_index])
+            completion = tokenizer.decode([chosen_token_id], skip_special_tokens=False)
+            action = parse_completion_to_action(
+                completion,
+                task_prompt=extract_task_prompt(item["prompt"]),
+                task_type=item["task_type"],
+                current_solution=extract_current_solution(item["prompt"]),
+                strategy_text=item.get("strategy_text", ""),
             )
-            action = parse_completion_to_action(completion)
             result = await env.step(action)
+            if action.strategy_patch is not None:
+                action_origin = (
+                    "compact_patch"
+                    if action.strategy_note.startswith("Expanded from compact action token")
+                    else "json_patch"
+                )
+            elif action.strategy_note.startswith("Expanded from compact action token"):
+                action_origin = "compact_direct"
+            elif action.strategy_note in {
+                "Raw completion used as solution",
+                "Extracted from fenced block",
+            }:
+                action_origin = "raw_direct"
+            else:
+                action_origin = "json_direct"
 
             record = {
                 "task_type": item["task_type"],
@@ -223,6 +294,7 @@ def evaluate_model(
                 "reward": float(result.reward),
                 "score": float(result.observation.total_score),
                 "used_strategy_patch": bool(action.strategy_patch is not None),
+                "action_origin": action_origin,
             }
 
             # GodelEnv 2.0: log patch decision if present
@@ -248,6 +320,11 @@ def evaluate_model(
         if scores
     }
 
+    structured_action_rate = sum(
+        1
+        for record in records
+        if record.get("action_origin", "").startswith(("compact_", "json_"))
+    ) / len(records)
     patch_records = [record for record in records if record.get("used_strategy_patch")]
     accepted_patches = [record for record in patch_records if record.get("patch_accepted")]
     mean_patch_improvement = (
@@ -258,7 +335,9 @@ def evaluate_model(
     return {
         "mean_reward": mean_reward,
         "mean_score": mean_score,
+        "policy_mode": policy_mode,
         "task_means": task_means,
+        "structured_action_rate": structured_action_rate,
         "strategy_patch_rate": len(patch_records) / len(records),
         "patch_acceptance_rate": len(accepted_patches) / len(patch_records) if patch_records else 0.0,
         "mean_patch_improvement": mean_patch_improvement,
@@ -389,26 +468,26 @@ def plot_before_after(
     else:
         ax.text(0.5, 0.5, "No per-task data", ha="center", va="center", transform=ax.transAxes)
 
-    # Right panel: recursive patch behavior
+    # Right panel: policy behavior
     ax = axes[2]
-    recursive_labels = ["Patch rate", "Accept rate", "Mean patch delta"]
+    behavior_labels = ["Structured rate", "Strategy score", "Patch rate"]
     baseline_recursive = [
+        baseline_metrics.get("structured_action_rate", 0.0),
+        baseline_metrics.get("task_means", {}).get("strategy_optimization", 0.0),
         baseline_metrics.get("strategy_patch_rate", 0.0),
-        baseline_metrics.get("patch_acceptance_rate", 0.0),
-        baseline_metrics.get("mean_patch_improvement", 0.0),
     ]
     trained_recursive = [
+        trained_metrics.get("structured_action_rate", 0.0),
+        trained_metrics.get("task_means", {}).get("strategy_optimization", 0.0),
         trained_metrics.get("strategy_patch_rate", 0.0),
-        trained_metrics.get("patch_acceptance_rate", 0.0),
-        trained_metrics.get("mean_patch_improvement", 0.0),
     ]
-    x = range(len(recursive_labels))
+    x = range(len(behavior_labels))
     ax.bar([i - 0.18 for i in x], baseline_recursive, width=0.35, label="Baseline", color="#94a3b8")
     ax.bar([i + 0.18 for i in x], trained_recursive, width=0.35, label="Trained", color="#0f766e")
     ax.set_xticks(list(x))
-    ax.set_xticklabels(recursive_labels, fontsize=8)
+    ax.set_xticklabels(behavior_labels, fontsize=8)
     ax.set_ylabel("Value")
-    ax.set_title("Recursive Patch Metrics")
+    ax.set_title("Policy Behavior")
     ax.legend(fontsize=8)
     ax.grid(axis="y", alpha=0.25)
 

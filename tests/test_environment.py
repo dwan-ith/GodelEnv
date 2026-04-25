@@ -16,7 +16,18 @@ from fastapi.testclient import TestClient
 from godel_engine.environment import GodelEnvironment
 from godel_engine.evolution import Strategy
 from godel_engine.heuristic_policy import build_heuristic_action
-from godel_engine.rollout import collect_local_prompt_dataset, parse_prompt_metadata
+from godel_engine.provider_runtime import (
+    DEFAULT_HF_ROUTER_BASE_URL,
+    ProviderCircuitBreaker,
+    load_provider_configs,
+)
+from godel_engine.rollout import (
+    build_prompt,
+    collect_local_prompt_dataset,
+    parse_completion_to_action,
+    parse_prompt_metadata,
+)
+from godel_engine.symbolic_actions import ACTION_DIRECT_BEST, ACTION_PATCH_BALANCED
 from server.app import app
 
 
@@ -131,6 +142,16 @@ def test_demo_act_endpoint_returns_action() -> None:
     assert payload["solution"]
 
 
+def test_demo_provider_status_endpoint_returns_safe_provider_info() -> None:
+    client = TestClient(app)
+    response = client.get("/demo/provider-status")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "providers" in payload
+    assert "grading_mode" in payload
+    assert "strategy_eval_mode" in payload
+
+
 def test_strategy_evaluation_depends_on_strategy_text() -> None:
     async def _run() -> None:
         env = GodelEnvironment(seed=42)
@@ -146,9 +167,81 @@ def test_strategy_evaluation_depends_on_strategy_text() -> None:
                 "6. Reflect on repeated failures."
             ),
         )
-        weak_axes, _ = await env._evaluate_strategy_downstream(weak)
-        strong_axes, _ = await env._evaluate_strategy_downstream(strong)
+        weak_axes, _, _ = await env._evaluate_strategy_downstream(weak)
+        strong_axes, _, _ = await env._evaluate_strategy_downstream(strong)
         assert strong_axes["correctness"] > weak_axes["correctness"]
         assert strong_axes["generalization"] >= weak_axes["generalization"]
 
     asyncio.run(_run())
+
+
+def test_compact_direct_action_token_expands_to_real_solution() -> None:
+    action = parse_completion_to_action(
+        ACTION_DIRECT_BEST,
+        task_prompt="Explain the significance of the attention mechanism in Transformers.",
+        task_type="factual_qa",
+        current_solution="Attention helps.",
+    )
+    assert action.strategy_patch is None
+    assert "attention" in action.solution.lower()
+
+
+def test_compact_patch_action_token_expands_to_strategy_patch() -> None:
+    action = parse_completion_to_action(
+        ACTION_PATCH_BALANCED,
+        task_prompt=(
+            "Improve a reasoning template and demonstrate it on a downstream challenge."
+        ),
+        task_type="strategy_optimization",
+        current_solution="Use the old template.",
+        strategy_text="Read the question and answer it.",
+    )
+    assert action.strategy_patch is not None
+    assert "verification" in action.strategy_patch.improved_strategy.lower()
+
+
+def test_compact_prompt_stays_within_training_budget() -> None:
+    prompt = build_prompt(
+        task_prompt="Explain the core differences between RL and supervised learning.",
+        current_solution="RL is about agents.",
+        rubric_feedback="Add rewards, environment interaction, and dataset labels.",
+        task_type="strategy_optimization",
+        task_id="godel02",
+        strategy_text="Break the problem down, gather evidence, verify, and reflect.",
+        downstream_scores={"factual_qa": 0.72, "reasoning": 0.61},
+        recent_failures=["Missed uncertainty handling.", "Skipped the counterargument."],
+    )
+    assert "ACTION TOKEN:" in prompt
+    assert len(prompt) < 2500
+
+
+def test_provider_circuit_breaker_disables_after_connection_error() -> None:
+    ProviderCircuitBreaker.reset()
+    ProviderCircuitBreaker.record_failure("openai", RuntimeError("Connection error to provider"))
+    assert ProviderCircuitBreaker.is_disabled("openai")
+    assert not ProviderCircuitBreaker.is_disabled("huggingface")
+    ProviderCircuitBreaker.reset()
+
+
+def test_load_provider_configs_keeps_provider_groups_separate(monkeypatch) -> None:
+    monkeypatch.setenv("API_KEY", "custom-key")
+    monkeypatch.setenv("API_BASE_URL", "https://custom.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.delenv("OPENAI_API_BASE_URL", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    configs = load_provider_configs()
+    assert [config.name for config in configs][:2] == ["custom", "openai"]
+    openai_config = next(config for config in configs if config.name == "openai")
+    assert openai_config.base_url is None
+
+
+def test_load_provider_configs_defaults_hf_router(monkeypatch) -> None:
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "hf-token")
+
+    configs = load_provider_configs()
+    huggingface_config = next(config for config in configs if config.name == "huggingface")
+    assert huggingface_config.base_url == DEFAULT_HF_ROUTER_BASE_URL

@@ -246,10 +246,10 @@ class GodelEnvironment:
         )
 
         # Evaluate parent and child on held-out tasks
-        parent_scores, parent_per_task = await self._evaluate_strategy_downstream(
+        parent_scores, parent_per_task, parent_diagnostics = await self._evaluate_strategy_downstream(
             self.current_strategy
         )
-        child_scores, child_per_task = await self._evaluate_strategy_downstream(child)
+        child_scores, child_per_task, child_diagnostics = await self._evaluate_strategy_downstream(child)
 
         # Run strategy-level guards
         guard_result = run_strategy_guards(
@@ -259,6 +259,11 @@ class GodelEnvironment:
         )
 
         # Governor decision
+        regression_count = sum(
+            1
+            for task in set(parent_per_task) | set(child_per_task)
+            if child_per_task.get(task, 0.0) < parent_per_task.get(task, 0.0) - 0.01
+        )
         if guard_result.passed:
             decision = self.governor.decide(
                 parent_scores, child_scores,
@@ -271,7 +276,7 @@ class GodelEnvironment:
                 "child_utility": self.governor.compute_utility(child_scores),
                 "improvement": 0.0,
                 "rejection_reasons": guard_result.violations,
-                "regression_count": 0,
+                "regression_count": regression_count,
                 "tasks_evaluated": len(child_per_task),
             }
 
@@ -284,6 +289,12 @@ class GodelEnvironment:
             rejection_reasons=decision.get("rejection_reasons", []),
             tasks_evaluated=decision.get("tasks_evaluated", 0),
             regression_count=decision.get("regression_count", 0),
+            diagnostics={
+                "parent_source_counts": parent_diagnostics.get("source_counts", {}),
+                "child_source_counts": child_diagnostics.get("source_counts", {}),
+                "providers": child_diagnostics.get("providers", []),
+                "last_error": child_diagnostics.get("last_error") or parent_diagnostics.get("last_error"),
+            },
         )
 
         # Apply decision
@@ -379,6 +390,8 @@ class GodelEnvironment:
                 "strategy_generation": self.current_strategy.generation,
                 "registry_stats": self.registry.get_stats(),
                 "strategy_eval_mode": self.strategy_evaluator.mode,
+                "strategy_eval_source_counts": child_diagnostics.get("source_counts", {}),
+                "strategy_eval_last_error": child_diagnostics.get("last_error"),
             },
         )
 
@@ -496,12 +509,12 @@ class GodelEnvironment:
     async def _evaluate_strategy_downstream(
         self,
         strategy: Strategy,
-    ) -> tuple[Dict[str, float], Dict[str, float]]:
+    ) -> tuple[Dict[str, float], Dict[str, float], dict]:
         """
         Evaluate a strategy on held-out downstream tasks.
 
         Returns:
-            (axis_scores, per_task_scores)
+            (axis_scores, per_task_scores, diagnostics)
         """
         axis_scores, per_case_scores, diagnostics = await self.strategy_evaluator.evaluate(
             self.tasks,
@@ -510,14 +523,14 @@ class GodelEnvironment:
             current_task_id=self.current_instance.task_id if self.current_instance else "",
         )
 
-        for key, score in per_case_scores.items():
-            strategy.record_performance(score, key)
+        for task_type, score in diagnostics.get("per_family", {}).items():
+            strategy.record_performance(score, task_type)
             if score < 0.45:
                 strategy.record_failure(
-                    f"{key} remains weak under strategy {strategy.id} (score {score:.3f})"
+                    f"{task_type} remains weak under strategy {strategy.id} (score {score:.3f})"
                 )
         strategy.metadata["last_eval"] = diagnostics
-        return axis_scores, per_case_scores
+        return axis_scores, per_case_scores, diagnostics
 
     def state(self) -> GodelState:
         """Return the current episode state."""

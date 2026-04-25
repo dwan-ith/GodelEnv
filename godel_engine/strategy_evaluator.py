@@ -31,6 +31,11 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from godel_engine.heuristic_policy import build_heuristic_solution
+from godel_engine.provider_runtime import (
+    ProviderCircuitBreaker,
+    describe_provider_configs,
+    load_provider_configs,
+)
 
 
 load_dotenv(override=False)
@@ -53,24 +58,23 @@ class StrategyEvaluator:
         self.timeout = timeout
         self.max_cases = max_cases
         self.mode = os.getenv("GODEL_STRATEGY_EVAL_MODE", "deterministic").strip().lower()
-
-        self.api_key = (
-            os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY")
-        )
-        self.base_url = os.getenv("API_BASE_URL")
-        if self.api_key and not self.base_url and os.getenv("HF_TOKEN"):
-            self.base_url = "https://router.huggingface.co/v1"
-        self.model_name = os.getenv(
-            "MODEL_NAME",
-            "Qwen/Qwen2.5-7B-Instruct" if self.base_url else "gpt-4o-mini",
-        )
-
-        self.client: AsyncOpenAI | None = None
-        if self.api_key and self.mode in {"auto", "llm"}:
-            self.client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url if self.base_url else None,
-            )
+        self.providers = load_provider_configs()
+        self.clients: list[tuple[str, str, AsyncOpenAI]] = []
+        if self.mode in {"auto", "llm"}:
+            for provider in self.providers:
+                if not provider.api_key:
+                    continue
+                self.clients.append(
+                    (
+                        provider.name,
+                        provider.model_name,
+                        AsyncOpenAI(
+                            api_key=provider.api_key,
+                            base_url=provider.base_url if provider.base_url else None,
+                        ),
+                    )
+                )
+        self.last_error: str | None = None
 
     def build_bundle(
         self,
@@ -133,9 +137,10 @@ class StrategyEvaluator:
         family_scores: dict[str, list[float]] = {}
         diagnostics: dict[str, Any] = {
             "mode": self.mode,
-            "model": self.model_name if self.client else "deterministic",
+            "providers": describe_provider_configs(),
             "cases": [],
         }
+        source_counts: dict[str, int] = {}
 
         for case in cases:
             task_obj = tasks.get(case.task_type)
@@ -158,6 +163,7 @@ class StrategyEvaluator:
             key = f"{case.split}:{case.task_type}:{case.task_id}"
             per_case_scores[key] = score
             family_scores.setdefault(case.task_type, []).append(score)
+            source_counts[source] = source_counts.get(source, 0) + 1
             diagnostics["cases"].append(
                 {
                     "key": key,
@@ -177,6 +183,9 @@ class StrategyEvaluator:
         axis_scores = self._axis_scores(per_family)
         diagnostics["per_family"] = per_family
         diagnostics["axis_scores"] = axis_scores
+        diagnostics["source_counts"] = source_counts
+        if self.last_error:
+            diagnostics["last_error"] = self.last_error
         return axis_scores, per_case_scores, diagnostics
 
     async def _solve_case(
@@ -186,7 +195,11 @@ class StrategyEvaluator:
         task_type: str,
         strategy_text: str,
     ) -> tuple[str, str]:
-        if not self.client:
+        self.last_error = None
+
+        if not self.clients:
+            if self.mode == "llm":
+                raise RuntimeError("no LLM providers configured for strategy evaluation")
             return (
                 build_heuristic_solution(task_prompt, task_type, strategy_text=strategy_text),
                 "deterministic",
@@ -204,26 +217,44 @@ class StrategyEvaluator:
             "FINAL SOLUTION:"
         )
 
-        try:
-            response = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.2,
-                    max_tokens=900,
-                ),
-                timeout=self.timeout,
-            )
-            content = response.choices[0].message.content or ""
-            if content.strip():
-                return content.strip(), "llm"
-        except Exception as exc:
-            if self.mode == "llm":
-                raise
-            logger.info("LLM strategy solve failed; using deterministic fallback: %s", exc)
+        errors: list[str] = []
+        for provider_name, model_name, client in self.clients:
+            if ProviderCircuitBreaker.is_disabled(provider_name):
+                errors.append(
+                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name)})"
+                )
+                continue
+
+            try:
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        temperature=0.2,
+                        max_tokens=900,
+                    ),
+                    timeout=self.timeout,
+                )
+                content = response.choices[0].message.content or ""
+                if content.strip():
+                    return content.strip(), f"llm:{provider_name}"
+                raise ValueError("strategy evaluator returned an empty completion")
+            except Exception as exc:
+                message = ProviderCircuitBreaker.record_failure(provider_name, exc)
+                errors.append(f"{provider_name}: {message}")
+                logger.warning(
+                    "Provider %s failed for strategy evaluation; trying fallback: %s",
+                    provider_name,
+                    message,
+                )
+
+        self.last_error = "; ".join(errors) if errors else "no enabled providers"
+        if self.mode == "llm":
+            raise RuntimeError(self.last_error)
+        logger.info("LLM strategy solve failed; using deterministic fallback: %s", self.last_error)
 
         return (
             build_heuristic_solution(task_prompt, task_type, strategy_text=strategy_text),
@@ -254,7 +285,7 @@ class StrategyEvaluator:
             "correctness": mean_score,
             "generalization": min_score,
             "robustness": robustness,
-            "cost": 0.7 if self.client else 0.9,
+            "cost": 0.7 if self.clients else 0.9,
             "stability": stability,
         }
 

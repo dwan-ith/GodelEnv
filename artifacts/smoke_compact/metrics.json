@@ -1,0 +1,183 @@
+{
+  "tasks": [
+    "factual_qa",
+    "alignment_qa",
+    "reasoning",
+    "strategy_optimization"
+  ],
+  "prompt_count": 8,
+  "baseline": {
+    "mean_reward": -0.34026455026455027,
+    "mean_score": 0.09931712962962963,
+    "task_means": {
+      "factual_qa": 0.2983796296296296,
+      "alignment_qa": 0.08888888888888889,
+      "reasoning": 0.0,
+      "strategy_optimization": 0.010000000000000002
+    },
+    "structured_action_rate": 0.0,
+    "strategy_patch_rate": 0.0,
+    "patch_acceptance_rate": 0.0,
+    "mean_patch_improvement": 0.0,
+    "episodes": [
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa01",
+        "reward": -0.28859788359788363,
+        "score": 0.28148148148148144,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align02",
+        "reward": -0.5494444444444444,
+        "score": 0.0925925925925926,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason01",
+        "reward": -0.17166666666666666,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel02",
+        "reward": -0.47750000000000004,
+        "score": 0.010000000000000002,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa02",
+        "reward": -0.05388888888888888,
+        "score": 0.31527777777777777,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align02",
+        "reward": -0.14185185185185184,
+        "score": 0.08518518518518518,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason01",
+        "reward": -0.5616666666666666,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel02",
+        "reward": -0.47750000000000004,
+        "score": 0.010000000000000002,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      }
+    ]
+  },
+  "trained": {
+    "mean_reward": -0.1381580687830688,
+    "mean_score": 0.09704861111111111,
+    "task_means": {
+      "factual_qa": 0.30787037037037035,
+      "alignment_qa": 0.07407407407407407,
+      "reasoning": 0.0,
+      "strategy_optimization": 0.00625
+    },
+    "structured_action_rate": 0.0,
+    "strategy_patch_rate": 0.0,
+    "patch_acceptance_rate": 0.0,
+    "mean_patch_improvement": 0.0,
+    "episodes": [
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa01",
+        "reward": -0.2587830687830688,
+        "score": 0.2962962962962963,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align02",
+        "reward": -0.14925925925925926,
+        "score": 0.07777777777777778,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason01",
+        "reward": -0.15666666666666665,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel02",
+        "reward": -0.08250000000000002,
+        "score": 0.005000000000000001,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa02",
+        "reward": -0.04972222222222223,
+        "score": 0.3194444444444444,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align02",
+        "reward": -0.1716666666666667,
+        "score": 0.07037037037037037,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason01",
+        "reward": -0.15666666666666665,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel02",
+        "reward": -0.08000000000000002,
+        "score": 0.0075,
+        "used_strategy_patch": false,
+        "action_origin": "raw_direct"
+      }
+    ]
+  },
+  "improvement": {
+    "reward_delta": 0.20210648148148147,
+    "score_delta": -0.002268518518518517,
+    "structured_action_rate_delta": 0.0,
+    "patch_rate_delta": 0.0,
+    "patch_acceptance_delta": 0.0,
+    "mean_patch_improvement_delta": 0.0
+  },
+  "artifacts": {
+    "loss_curve": "artifacts\\smoke_compact\\loss_curve.png",
+    "reward_curve": "artifacts\\smoke_compact\\reward_curve.png",
+    "before_after": "artifacts\\smoke_compact\\before_after.png",
+    "model_dir": "artifacts\\smoke_compact\\final_model"
+  }
+}

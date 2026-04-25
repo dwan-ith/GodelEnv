@@ -88,7 +88,7 @@ class BaseTask(ABC):
         )
         if llm_result is not None:
             llm_total, llm_scores, llm_feedback = llm_result
-            self.last_grading_source = "llm"
+            self.last_grading_source = self.llm_grader.last_source or "llm"
             self.last_grading_error = None
             merged_feedback = {
                 name: llm_feedback.get(name) or deterministic_feedback.get(name, "")

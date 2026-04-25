@@ -26,6 +26,9 @@ from dotenv import load_dotenv
 
 
 load_dotenv(override=False)
+os.environ.setdefault("WANDB_DISABLED", "true")
+os.environ.setdefault("WANDB_MODE", "disabled")
+os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
 
 
 def _restart_with_utf8_on_windows() -> None:
@@ -61,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sft-steps", type=int, default=20)
     parser.add_argument("--grpo-steps", type=int, default=10)
     parser.add_argument("--max-input-length", type=int, default=512)
-    parser.add_argument("--max-new-tokens", type=int, default=128)
+    parser.add_argument("--max-new-tokens", type=int, default=1)
     parser.add_argument(
         "--grading-mode",
         type=str,
@@ -127,6 +130,8 @@ def run(args: argparse.Namespace) -> dict:
         prompt_data,
         max_new_tokens=args.max_new_tokens,
         max_input_length=args.max_input_length,
+        policy_mode="random",
+        seed=42,
     )
     logger.info(
         "Baseline metrics: reward=%.4f score=%.4f",
@@ -173,6 +178,8 @@ def run(args: argparse.Namespace) -> dict:
         prompt_data,
         max_new_tokens=args.max_new_tokens,
         max_input_length=args.max_input_length,
+        policy_mode="model",
+        seed=42,
     )
     logger.info(
         "Trained metrics: reward=%.4f score=%.4f",
@@ -196,6 +203,8 @@ def run(args: argparse.Namespace) -> dict:
         "improvement": {
             "reward_delta": trained_metrics["mean_reward"] - baseline_metrics["mean_reward"],
             "score_delta": trained_metrics["mean_score"] - baseline_metrics["mean_score"],
+            "structured_action_rate_delta": trained_metrics.get("structured_action_rate", 0.0)
+            - baseline_metrics.get("structured_action_rate", 0.0),
             "patch_rate_delta": trained_metrics.get("strategy_patch_rate", 0.0)
             - baseline_metrics.get("strategy_patch_rate", 0.0),
             "patch_acceptance_delta": trained_metrics.get("patch_acceptance_rate", 0.0)
@@ -213,6 +222,12 @@ def run(args: argparse.Namespace) -> dict:
 
     summary_path = output_dir / "metrics.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    try:
+        import wandb
+
+        wandb.finish(quiet=True)
+    except Exception:
+        pass
     logger.info("Wrote training summary to %s", summary_path)
     return summary
 
