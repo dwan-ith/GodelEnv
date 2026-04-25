@@ -215,18 +215,39 @@ async def provider_test_full() -> dict:
         base_url=hf_config.base_url,
     )
 
-    prompt = '''You are an AI agent. Return raw JSON (no markdown).
-{"solution": "your answer", "edit_type": "rewrite", "strategy_note": "explanation"}'''
+    # Use the actual agent system prompt
+    system_prompt = """You are a self-improving AI agent inside Godel Env.
+Your goal is recursive self-improvement: propose changes to your own reasoning strategy that will improve performance on held-out tasks.
+
+RUBRICS FOR THIS TASK:
+- correctness: Is the answer factually correct?
+
+IMPORTANT INSTRUCTIONS:
+1. Analyze the CURRENT STRATEGY carefully. What is it missing? What could be improved?
+2. If proposing a strategy patch, make it SPECIFIC and TARGETED to address identified weaknesses.
+3. Do NOT propose generic improvements. Each patch should have a clear hypothesis about WHY it will help.
+4. The strategy will be evaluated on held-out tasks, so improvements must generalize.
+
+Return raw JSON (no markdown code blocks).
+
+For direct answer improvement:
+{
+  "solution": "your improved solution",
+  "edit_type": "rewrite",
+  "strategy_note": "brief explanation"
+}"""
+
+    user_prompt = "TASK PROMPT:\nWhat is 2+2?\n\nCURRENT SOLUTION:\n4"
 
     try:
         response = await asyncio.wait_for(
             client.chat.completions.create(
                 model=hf_config.model_name,
                 messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": "What is 2+2?"},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=500,
+                max_tokens=1000,
             ),
             timeout=60,
         )
