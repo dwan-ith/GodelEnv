@@ -1,5 +1,5 @@
 """
-Gödel Engine — A Self-Improving RL Environment for Strategy Evolution
+Godel Engine -- A Self-Improving RL Environment for Strategy Evolution
 
 OpenEnv-compatible environment where an LLM agent iteratively improves
 solutions through reinforcement learning, scored by LLM-as-a-judge graders.
@@ -11,18 +11,21 @@ Standalone usage (no web server required):
     result = await env.step(action)
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from godel_engine.models import (
     GodelAction,
     GodelObservation,
     GodelState,
     GodelStepResult,
+    RewardBreakdown,
     EditType,
 )
 from godel_engine.environment import GodelEnvironment
 from godel_engine.agent import AutoAgent
 from godel_engine.client import GodelEngineEnv
+from godel_engine.guards import run_all_guards, GuardResult
+from godel_engine.curriculum import CurriculumController
 
 __all__ = [
     "GodelEnvironment",
@@ -31,6 +34,10 @@ __all__ = [
     "GodelObservation",
     "GodelState",
     "GodelStepResult",
+    "RewardBreakdown",
     "EditType",
     "GodelEngineEnv",
+    "run_all_guards",
+    "GuardResult",
+    "CurriculumController",
 ]

@@ -123,6 +123,33 @@ class GodelState(BaseModel):
     improvement_trajectory: list[float] = Field(default_factory=list)
 
 
+# ── Reward Breakdown ──────────────────────────────────────────────────
+
+class RewardBreakdown(BaseModel):
+    """
+    Independent reward channels for multi-objective RL.
+    Each channel can be used as a separate reward function by TRL/GRPO.
+    """
+    task_score_delta: float = Field(0.0, description="Score improvement from previous step")
+    format_compliance: float = Field(0.0, description="Did agent follow expected output format?")
+    length_penalty: float = Field(0.0, description="Penalty for excessively long/short solutions")
+    step_cost: float = Field(-0.005, description="Per-step penalty to encourage efficiency")
+    anti_hack_penalty: float = Field(0.0, description="Penalty from anti-reward-hacking guards")
+    process_reward: float = Field(0.0, description="Step-level reasoning quality bonus")
+    total: float = Field(0.0, description="Sum of all channels (the scalar used by default)")
+
+    def compute_total(self) -> float:
+        self.total = (
+            self.task_score_delta
+            + self.format_compliance
+            + self.length_penalty
+            + self.step_cost
+            + self.anti_hack_penalty
+            + self.process_reward
+        )
+        return self.total
+
+
 # ── StepResult ────────────────────────────────────────────────────────
 
 class GodelStepResult(BaseModel):
@@ -131,6 +158,7 @@ class GodelStepResult(BaseModel):
     """
     observation: GodelObservation
     reward: float = 0.0
+    reward_breakdown: RewardBreakdown = Field(default_factory=RewardBreakdown)
     terminated: bool = False      # Episode ended by environment logic
     truncated: bool = False       # Episode ended by step limit
     info: dict[str, Any] = Field(default_factory=dict)

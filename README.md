@@ -1,4 +1,4 @@
-﻿---
+---
 title: GodelEnv
 emoji: "🚞"
 colorFrom: purple
@@ -9,7 +9,7 @@ tags:
   - openenv
   - reinforcement-learning
 ---
-# â™¾ï¸ GÃ¶del Env
+# Godel Env
 
 > A self-improving reinforcement learning environment built on [OpenEnv](https://openenv.dev).
 
@@ -17,36 +17,46 @@ tags:
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An LLM agent iteratively improves solutions across professional real-world domains. Each step is graded by a multi-axis **LLM-as-a-judge** rubric grader, producing partial progress signals (not sparse binary rewards). The hardest task ("GÃ¶del tier") is fully recursive: the agent must improve a *reasoning template* that is then empirically tested on a downstream challenge.
+An LLM agent iteratively improves solutions across professional real-world domains. Each step is
+graded by a multi-axis LLM-as-a-judge rubric grader, producing partial progress signals (not
+sparse binary rewards). The hardest task ("Godel tier") is fully recursive: the agent must improve
+a reasoning template that is then empirically tested on a downstream challenge.
 
 ---
 
 ## Architecture
 
 ```
-godel_engine/           â† Core RL package (no web server needed)
-â”‚   environment.py      â† GodelEnvironment: reset() / step() / state()
-â”‚   agent.py            â† AutoAgent: LLM-based action policy
-â”‚   evolution.py        â† DarwinPool + HuxleyTracker (strategy evolution)
-â”‚   models.py           â† Typed Pydantic models (GodelAction, GodelObservationâ€¦)
-â”‚   graders/
-â”‚       agent_grader.py â† LLM-as-a-judge grader (LiteLLM)
-â”‚   tasks/
-â”‚       base.py         â† BaseTask abstract class
-â”‚       factual_qa.py   â† Easy: factual explanation
-â”‚       alignment_qa.py â† Easy: AI safety concepts
-â”‚       code_improvement.py â† Medium: Python correctness (deterministic)
-â”‚       python_optimized.py â† Medium: code performance + docs
-â”‚       reasoning.py    â† Medium: multi-step logic
-â”‚       adr_writing.py  â† Hard: Architecture Decision Records
-â”‚       strategy_optimization.py â† GÃ¶del: recursive self-improvement
-server/                 â† Optional FastAPI dashboard wrapper
-baseline.py             â† Standalone RL evaluation script
+godel_engine/               <- Core RL package (no web server needed)
+|   environment.py          <- GodelEnvironment: reset() / step() / state()
+|   agent.py                <- AutoAgent: LLM-based action policy
+|   evolution.py            <- DarwinPool + HuxleyTracker (strategy evolution)
+|   models.py               <- Typed Pydantic models (GodelAction, RewardBreakdown...)
+|   guards.py               <- Anti-reward-hacking guards (5 independent checks)
+|   curriculum.py           <- Automatic difficulty progression controller
+|   rollout.py              <- TRL/GRPO rollout integration + reward functions
+|   client.py               <- HTTP client for remote env access
+|   graders/
+|       agent_grader.py     <- LLM-as-a-judge grader (OpenAI client)
+|   tasks/
+|       base.py             <- BaseTask abstract class
+|       factual_qa.py       <- Easy: factual explanation
+|       alignment_qa.py     <- Easy: AI safety concepts
+|       code_improvement.py <- Medium: Python correctness (deterministic)
+|       python_optimized.py <- Medium: code performance + docs
+|       reasoning.py        <- Medium: multi-step logic
+|       adr_writing.py      <- Hard: Architecture Decision Records
+|       strategy_optimization.py <- Godel: recursive self-improvement
+server/                     <- FastAPI dashboard wrapper
+train.py                    <- TRL/GRPO training script (Unsloth + LoRA)
+demo.py                     <- Before/after demonstration
+inference.py                <- Hackathon inference script ([START]/[STEP]/[END] format)
+baseline.py                 <- Standalone RL evaluation script
 ```
 
 ---
 
-## Tasks (easy â†’ medium â†’ hard â†’ gÃ¶del)
+## Tasks
 
 | Task | Difficulty | Grader | Rubrics |
 |---|---|---|---|
@@ -56,47 +66,63 @@ baseline.py             â† Standalone RL evaluation script
 | `python_optimized` | Medium | LLM judge | correctness, efficiency, documentation |
 | `reasoning` | Medium | LLM judge | logical_validity, completeness, clarity |
 | `adr_writing` | Hard | LLM judge | structure, completeness, trade_off_analysis |
-| `strategy_optimization` | GÃ¶del | Two-phase (structural + empirical) | self_verification, structural_rigor, recursive_potential, downstream_quality |
+| `strategy_optimization` | Godel | Two-phase (structural + empirical) | self_verification, structural_rigor, recursive_potential, downstream_quality |
 
 ---
 
-## Action & Observation Spaces
+## Reward Channels
 
-### Action (`GodelAction`)
-```python
-class GodelAction(BaseModel):
-    solution: str        # Full replacement solution text
-    edit_type: EditType  # rewrite | refine | add_reasoning | ...
-    strategy_note: str   # Optional agent rationale (logged, not graded)
-```
+GodelEnv uses **multiple independent reward functions** instead of a single scalar.
+Each channel can be used separately by TRL's GRPOTrainer for multi-objective optimization.
 
-### Observation (`GodelObservation`)
-```python
-class GodelObservation(BaseModel):
-    task_prompt: str              # The problem to solve
-    current_solution: str         # Agent's current solution
-    total_score: float            # Weighted composite [0.0, 1.0]
-    rubric_scores: RubricScores   # Per-axis scores + feedback
-    step: int                     # Current step number
-    improvement_history: list     # Delta history
-    feedback_summary: str         # Plain-text improvement hint
-```
-
-### Reward Function
-```
-reward = (score_t - score_{t-1}) - 0.005 * step_cost
-```
-Episodes terminate when `score >= 0.95`, the agent stagnates (3 flat steps), or `step >= 10`.
+| Channel | Range | Description |
+|---|---|---|
+| `task_score_delta` | [-1, 1] | Score improvement from rubric grading |
+| `format_compliance` | [0, 0.02] | Bonus for following expected output format |
+| `step_cost` | -0.005 | Fixed per-step penalty (encourages efficiency) |
+| `anti_hack_penalty` | [-1, 0] | Penalty from anti-reward-hacking guards |
+| `process_reward` | [0, 0.05] | Step-level reasoning quality bonus |
+| `total` | sum | Sum of all channels |
 
 ---
 
-##  Quick Start
+## Anti-Reward-Hacking Guards
+
+Five independent guards run on every `step()` call:
+
+| Guard | Penalty | What It Catches |
+|---|---|---|
+| Empty solution | -0.5 | Whitespace-only or empty submissions |
+| Length guard | -0.3 | Solutions >10x or <0.1x initial length |
+| Repetition guard | -0.4 | Copy-paste spam (trigram repetition >40%) |
+| Forbidden patterns | -0.5 | `import os`, `exec()`, `globals()` in code tasks |
+| Regression guard | -0.2 | Score drops >0.3 in one step |
+
+Severe violations (penalty <= -0.8) terminate the episode immediately.
+
+---
+
+## Curriculum Learning
+
+The environment automatically adjusts task difficulty based on agent performance:
+
+```
+easy -> medium -> hard -> godel
+```
+
+- Escalation: success_rate > 0.6 over last 10 episodes
+- De-escalation: success_rate < 0.2 over last 10 episodes
+- Manual override: `env.reset(difficulty="hard")`
+
+---
+
+## Quick Start
 
 ### 1. Install
 
 ```bash
-git clone <repo-url>
-cd GodelEngine
+git clone https://github.com/dwan-ith/GodelEnv.git
+cd GodelEnv
 pip install -e ".[dev]"
 ```
 
@@ -104,56 +130,74 @@ pip install -e ".[dev]"
 
 ```bash
 cp .env.example .env
-# Edit .env and add your key:
-# OPENROUTER_API_KEY=sk-or-...   (recommended â€” free tier available)
-# OPENAI_API_KEY=sk-...
-# GEMINI_API_KEY=...
-# ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env and set:
+# HF_TOKEN=hf_...
+# API_BASE_URL=https://router.huggingface.co/v1
+# MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
 ```
 
-### 3. Run Baseline (standalone â€” no server needed)
+### 3. Run Demo
 
 ```bash
-# Run all 7 tasks
-python baseline.py
+python demo.py
+```
 
-# Run specific tasks with seed for reproducibility
+### 4. Run Baseline
+
+```bash
 python baseline.py --tasks factual_qa code_improvement reasoning --seed 42
-
-# Save results to JSON
-python baseline.py --episodes 7 --seed 42 --output results.json
 ```
 
-Expected output:
-```
-============================================================
-  GÃ–DEL ENV â€” BASELINE EVALUATION
-============================================================
-  Tasks:    ['factual_qa', 'alignment_qa', ...]
-  Episodes: 7
-
-â”€â”€ Episode 1/7 | factual_qa â”€â”€
-  Initial Score: 0.050
-  step 01 | [â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘] 0.420 | reward=+0.3700 | ...
-  step 02 | [â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘â–‘] 0.720 | reward=+0.3000 | ...
-  âœ“ Done | final=0.720 Î”=+0.670 | steps=2
-...
-============================================================
-  RESULTS SUMMARY
-  Avg init score:  0.0621
-  Avg final score: 0.7340
-  Avg Î” score:    +0.6719
-============================================================
-```
-
-### 4. Run Dashboard (optional)
+### 5. Run Dashboard
 
 ```bash
-uvicorn server.app:app --host 0.0.0.0 --port 8000
-# Open: http://localhost:8000/dashboard/
+uvicorn server.app:app --host 0.0.0.0 --port 7860
+# Open: http://localhost:7860/dashboard/
 ```
 
-### 5. Use as a Python Library
+---
+
+## Training with TRL/GRPO
+
+GodelEnv integrates with Hugging Face TRL for reinforcement learning training
+using Group Relative Policy Optimization (GRPO) + Unsloth for efficiency.
+
+### Install Training Dependencies
+
+```bash
+pip install -e ".[train]"
+```
+
+### Validate Setup (Dry Run)
+
+```bash
+python train.py --dry-run --space-url https://litterarum-godelenv.hf.space
+```
+
+### Train
+
+```bash
+# Full training against remote HF Space
+python train.py \
+  --space-url https://litterarum-godelenv.hf.space \
+  --model unsloth/Qwen2.5-7B-Instruct-bnb-4bit \
+  --epochs 3 \
+  --batch-size 2 \
+  --num-prompts 50
+
+# Resume from checkpoint
+python train.py --resume-from checkpoints/checkpoint-500
+```
+
+The training script:
+1. Loads the model with Unsloth (4-bit quantization + LoRA)
+2. Collects prompts from the remote GodelEnv
+3. Runs GRPO with 4 independent reward functions
+4. Saves the trained model with proper LoRA merge
+
+---
+
+## Use as a Python Library
 
 ```python
 import asyncio
@@ -166,6 +210,7 @@ async def main():
     result = await env.reset(task_type="code_improvement")
     print(f"Task: {result.observation.task_prompt}")
     print(f"Baseline score: {result.observation.total_score:.3f}")
+    print(f"Difficulty: {result.info['difficulty']}")
 
     while not result.terminated and not result.truncated:
         action = await agent.act(
@@ -175,38 +220,59 @@ async def main():
             task_type=result.observation.task_type,
         )
         result = await env.step(action)
-        print(f"Step {result.observation.step}: score={result.observation.total_score:.3f}")
+        print(f"Step {result.observation.step}: "
+              f"score={result.observation.total_score:.3f} "
+              f"reward={result.reward:+.4f} "
+              f"reason={result.info['reason']}")
+
+        # Inspect reward breakdown
+        rb = result.reward_breakdown
+        print(f"  task_delta={rb.task_score_delta:+.3f} "
+              f"format={rb.format_compliance:+.3f} "
+              f"guard={rb.anti_hack_penalty:+.3f}")
+
+    # Check curriculum state
+    print(f"Curriculum: {env.curriculum.get_stats()}")
 
 asyncio.run(main())
 ```
 
 ---
 
-##  Docker / HF Spaces
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `HF_TOKEN` | Yes (HF) | Hugging Face token used as API key |
+| `API_BASE_URL` | Yes (HF) | LLM endpoint, e.g. `https://router.huggingface.co/v1` |
+| `MODEL_NAME` | Yes (HF) | Model identifier, e.g. `Qwen/Qwen2.5-7B-Instruct` |
+| `GODEL_SPACE_URL` | For training | Remote GodelEnv Space URL |
+
+---
+
+## Docker
 
 ```bash
 docker build -t godel-env .
-docker run -p 7860:7860 -e OPENROUTER_API_KEY=sk-or-... godel-env
+docker run -p 7860:7860 -e HF_TOKEN=hf_... -e API_BASE_URL=... -e MODEL_NAME=... godel-env
 ```
 
-The dashboard will be live at `http://localhost:7860/dashboard/`.
-
 ---
 
-## ðŸ§¬ Evolutionary Layers
+## Evolutionary Layers
 
 - **Darwin Pool**: Tournament-based strategy selection. Strategies that produce higher scores survive and spawn children.
-- **Huxley Tracker**: Measures **Clade-Metaproductivity (CMP)** â€” strategies that produce *better descendants* are prioritized, not just strategies with high personal scores.
+- **Huxley Tracker**: Measures Clade-Metaproductivity (CMP) -- strategies that produce better descendants are prioritized, not just strategies with high personal scores.
 
 ---
 
-##  Reproducible Baseline
+## Reproducible Baseline
 
 ```bash
 python baseline.py --episodes 7 --seed 42 --output baseline_results.json
 ```
 
-| Task | Difficulty | Avg Score | Avg Î” |
+| Task | Difficulty | Avg Score | Avg Delta |
 |---|---|---|---|
 | factual_qa | Easy | ~0.72 | +0.67 |
 | alignment_qa | Easy | ~0.68 | +0.63 |
@@ -214,9 +280,6 @@ python baseline.py --episodes 7 --seed 42 --output baseline_results.json
 | python_optimized | Medium | ~0.65 | +0.55 |
 | reasoning | Medium | ~0.63 | +0.53 |
 | adr_writing | Hard | ~0.58 | +0.48 |
-| strategy_optimization | GÃ¶del | ~0.71 | +0.63 |
+| strategy_optimization | Godel | ~0.71 | +0.63 |
 
 *(Scores vary with model and temperature.)*
-
-
-

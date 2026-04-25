@@ -1,10 +1,12 @@
 environment_name: GodelEngine
-version: 0.2.0
+version: 0.3.0
 description: >
   A self-improving RL environment where an LLM agent iteratively
   improves solutions across real-world professional tasks
   (technical writing, code correctness, alignment reasoning, strategy synthesis).
   Graded by an LLM-as-a-judge against multi-axis rubrics.
+  Features multi-channel rewards, anti-reward-hacking guards,
+  automatic curriculum learning, and TRL/GRPO training integration.
 author: litterarum
 license: MIT
 
@@ -36,7 +38,7 @@ observations:
       difficulty:       { type: string, enum: [easy, medium, hard, godel] }
       task_prompt:      { type: string }
       current_solution: { type: string }
-      total_score:      { type: number, minimum: 0.0, maximum: 1.0 }
+      total_score:      { type: number, minimum: 0.001, maximum: 0.999 }
       rubric_scores:
         type: object
         properties:
@@ -48,15 +50,67 @@ observations:
       improvement_history:  { type: array, items: { type: number } }
       feedback_summary:     { type: string }
 
-# Reward function
+# Reward function (multi-channel)
 reward:
   description: >
-    reward = (score_t - score_{t-1}) - 0.005 * step_cost
-  range: [-1.0, 1.0]
+    Multi-channel reward with independent components for multi-objective RL.
+  channels:
+    task_score_delta:
+      description: "Score improvement from previous step"
+      range: [-1.0, 1.0]
+    format_compliance:
+      description: "Bonus for following expected output format"
+      range: [0.0, 0.02]
+    step_cost:
+      description: "Per-step penalty to encourage efficiency"
+      value: -0.005
+    anti_hack_penalty:
+      description: "Penalty from anti-reward-hacking guards"
+      range: [-1.0, 0.0]
+    process_reward:
+      description: "Step-level reasoning quality bonus"
+      range: [0.0, 0.05]
+  total: "Sum of all channels"
   termination:
-    - score >= 0.95 (success)
-    - plateau: last 3 deltas all < 0.005 (stagnation)
-    - step >= max_steps (truncation)
+    - "success: score >= 0.95"
+    - "plateau: last 3 deltas all < 0.005"
+    - "guard_violation: severe anti-hacking penalty (<= -0.8)"
+    - "max_steps: step >= 10 (truncation)"
+
+# Anti-Reward-Hacking Guards
+guards:
+  description: >
+    Multiple independent checks that detect and penalize gaming behaviour.
+    Each guard returns an independent penalty.
+  checks:
+    - name: empty_solution
+      description: "Penalize empty or whitespace-only submissions"
+      penalty: -0.5
+    - name: length_guard
+      description: "Reject solutions >10x or <0.1x initial length"
+      penalty: -0.3
+    - name: repetition_guard
+      description: "Detect copy-paste spam via trigram repetition"
+      penalty: -0.4
+      threshold: 0.4
+    - name: forbidden_pattern
+      description: "Block os, subprocess, exec, eval, globals in code tasks"
+      penalty: -0.5
+      applies_to: [code_improvement, python_optimized]
+    - name: regression_guard
+      description: "Flag score drops > 0.3 in one step"
+      penalty: -0.2
+
+# Curriculum Learning
+curriculum:
+  description: >
+    Automatic difficulty progression based on rolling success rate.
+    Escalates when success_rate > 0.6, de-escalates when < 0.2.
+  difficulty_ladder: [easy, medium, hard, godel]
+  window_size: 10
+  escalation_threshold: 0.6
+  deescalation_threshold: 0.2
+  success_score_threshold: 0.7
 
 # Tasks
 tasks:
@@ -74,7 +128,7 @@ tasks:
     difficulty: medium
     description: "Write correct Python code that passes all unit tests."
     rubrics: [syntax, tests, documentation]
-    grader: deterministic  # AST + exec() — no LLM needed
+    grader: deterministic  # AST + exec() -- no LLM needed
 
   - id: python_optimized
     difficulty: medium
@@ -104,6 +158,15 @@ run:
   timeout_seconds: 120
   async_supported: true
   max_steps: 10
+
+# Training
+training:
+  framework: trl
+  algorithm: GRPO
+  efficiency: unsloth
+  default_model: unsloth/Qwen2.5-7B-Instruct-bnb-4bit
+  reward_funcs: [task_reward_func, format_reward_func, guard_reward_func, score_reward_func]
+  script: train.py
 
 # Interfaces
 api:

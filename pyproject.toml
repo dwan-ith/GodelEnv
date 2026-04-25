@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "godel_engine"
-version = "0.1.0"
+version = "0.3.0"
 description = "A self-improving RL environment for strategy evolution."
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,14 @@ dev = [
     "fastapi",
     "uvicorn",
     "websockets"
+]
+train = [
+    "trl>=0.15",
+    "transformers>=4.45",
+    "datasets>=3.0",
+    "torch>=2.1",
+    "wandb",
+    "unsloth",
 ]
 
 [project.scripts]
