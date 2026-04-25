@@ -95,9 +95,8 @@ body {
     display: grid;
     grid-template-columns: 1.5fr 1fr;
     gap: 1.5rem;
-    flex-grow: 1;
-    min-height: 0;
-    align-items: start;
+    height: calc(100vh - 120px);
+    align-items: stretch;
 }
 
 .panel {
@@ -107,6 +106,7 @@ body {
     flex-direction: column;
     padding: 1.5rem;
     position: relative;
+    overflow-y: auto;
     overflow-x: hidden;
 }
 
@@ -128,7 +128,6 @@ body {
     flex-grow: 1;
     overflow-y: auto;
     font-size: 0.85rem;
-    max-height: 600px;
     padding-right: 0.5rem;
 }
 
