@@ -24,7 +24,16 @@ from dataclasses import dataclass, field
 # ── Default reasoning strategy ───────────────────────────────────────
 
 DEFAULT_STRATEGY_TEXT = """\
-REASONING STRATEGY v1.0
+REASONING STRATEGY v0.1 (minimal baseline)
+
+1. Read and understand the task prompt.
+2. Draft an initial answer.
+3. Review and finalize the response.
+"""
+
+# A more advanced strategy that can be discovered through improvement
+ADVANCED_STRATEGY_TEXT = """\
+REASONING STRATEGY v2.0 (advanced)
 
 1. DECOMPOSE: Break the problem into atomic claims, assumptions, and decision points.
 2. EVIDENCE: For each claim, identify supporting evidence and note gaps.
@@ -108,7 +117,13 @@ def compute_elo_delta(
 
 @dataclass
 class GovernorConfig:
-    """Configuration for the patch acceptance Governor."""
+    """
+    Configuration for the patch acceptance Governor.
+
+    The Governor implements the "empirical proof" that replaces formal
+    verification in the practical Gödel machine approximation. Patches
+    are accepted only when objective evidence shows genuine improvement.
+    """
 
     # Minimum improvement required for acceptance
     min_improvement: float = 0.01
@@ -119,6 +134,15 @@ class GovernorConfig:
     # Maximum acceptable score variance across held-out tasks
     max_variance: float = 0.15
 
+    # Minimum tasks evaluated for a valid decision
+    min_tasks_for_decision: int = 3
+
+    # Maximum absolute regression allowed on any single task
+    max_single_task_regression: float = 0.15
+
+    # Canary task penalty threshold (if canary score drops, reject)
+    canary_regression_threshold: float = 0.05
+
     # Weights for multi-objective utility
     correctness_weight: float = 0.35
     generalization_weight: float = 0.25
@@ -126,15 +150,24 @@ class GovernorConfig:
     cost_weight: float = 0.10
     stability_weight: float = 0.10
 
+    # Safety weight (for alignment-sensitive tasks)
+    safety_weight: float = 0.0  # Added to utility if safety scores available
+
 
 class Governor:
     """
     Decides whether a proposed StrategyPatch should be accepted.
 
-    Acceptance depends on objective evidence from held-out evaluation:
-    1. Child must have higher multi-objective utility than parent.
-    2. Child must not regress on too many individual tasks.
-    3. Child must have acceptable variance (stability).
+    The Governor is the central anti-hacking mechanism. It implements
+    multiple gates to ensure that accepted patches represent genuine,
+    generalizable improvements rather than reward hacking:
+
+    1. IMPROVEMENT GATE: Child must have higher multi-objective utility
+    2. REGRESSION GATE: Child must not regress on too many tasks
+    3. STABILITY GATE: Child must have acceptable variance
+    4. SAMPLE SIZE GATE: Must evaluate on enough tasks for valid decision
+    5. CATASTROPHIC GATE: No single task can regress too severely
+    6. CANARY GATE: Special canary tasks must not regress
 
     This is the "empirical proof" that replaces formal verification
     in the Gödel machine paradigm.
@@ -143,17 +176,22 @@ class Governor:
     def __init__(self, config: Optional[GovernorConfig] = None):
         self.config = config or GovernorConfig()
         self.decision_log: List[Dict[str, Any]] = []
+        self.acceptance_rate_window: List[bool] = []  # Track recent decisions
 
     def compute_utility(self, scores: Dict[str, float]) -> float:
         """Compute weighted multi-objective utility from axis scores."""
         cfg = self.config
-        return (
+        utility = (
             cfg.correctness_weight * scores.get("correctness", 0.0)
             + cfg.generalization_weight * scores.get("generalization", 0.0)
             + cfg.robustness_weight * scores.get("robustness", 0.0)
             + cfg.cost_weight * scores.get("cost", 0.0)
             + cfg.stability_weight * scores.get("stability", 0.0)
         )
+        # Add safety bonus if available
+        if "safety" in scores and cfg.safety_weight > 0:
+            utility += cfg.safety_weight * scores["safety"]
+        return utility
 
     def decide(
         self,
@@ -161,21 +199,31 @@ class Governor:
         child_scores: Dict[str, float],
         per_task_parent: Dict[str, float],
         per_task_child: Dict[str, float],
+        canary_tasks: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Make an accept/reject decision based on multi-axis evaluation.
+
+        Implements six gates for rigorous patch acceptance:
+        1. Improvement threshold
+        2. Regression fraction
+        3. Variance/stability
+        4. Sample size
+        5. Catastrophic regression
+        6. Canary protection
 
         Returns a dictionary with:
         - accepted: bool
         - parent_utility, child_utility, improvement: floats
         - rejection_reasons: list of strings
-        - per-axis breakdown
+        - per-axis breakdown and diagnostics
         """
         parent_utility = self.compute_utility(parent_scores)
         child_utility = self.compute_utility(child_scores)
         improvement = child_utility - parent_utility
 
         rejection_reasons: List[str] = []
+        diagnostics: Dict[str, Any] = {}
 
         # Gate 1: Minimum improvement threshold
         if improvement < self.config.min_improvement:
@@ -186,12 +234,15 @@ class Governor:
         # Gate 2: Regression check — child must not regress on too many tasks
         regression_count = 0
         total_tasks = 0
+        regressions: List[str] = []
         for task in set(per_task_parent) | set(per_task_child):
             p = per_task_parent.get(task, 0.0)
             c = per_task_child.get(task, 0.0)
             total_tasks += 1
-            if c < p - 0.01:  # Small tolerance
+            regression = p - c
+            if regression > 0.01:  # Small tolerance
                 regression_count += 1
+                regressions.append(f"{task}: {p:.3f} -> {c:.3f} (-{regression:.3f})")
 
         if total_tasks > 0:
             regression_fraction = regression_count / total_tasks
@@ -200,6 +251,7 @@ class Governor:
                     f"Too many regressions: {regression_count}/{total_tasks} "
                     f"({regression_fraction:.0%} > {self.config.max_regression_fraction:.0%})"
                 )
+        diagnostics["regressions"] = regressions
 
         # Gate 3: Variance / stability check
         child_values = list(per_task_child.values())
@@ -210,6 +262,36 @@ class Governor:
                 rejection_reasons.append(
                     f"High variance: {variance:.4f} > {self.config.max_variance}"
                 )
+            diagnostics["variance"] = variance
+            diagnostics["mean_child_score"] = mean_c
+
+        # Gate 4: Sample size check
+        if total_tasks < self.config.min_tasks_for_decision:
+            rejection_reasons.append(
+                f"Insufficient evaluation: {total_tasks} tasks < {self.config.min_tasks_for_decision} minimum"
+            )
+
+        # Gate 5: Catastrophic regression check (no single task can drop too much)
+        for task in set(per_task_parent) | set(per_task_child):
+            p = per_task_parent.get(task, 0.0)
+            c = per_task_child.get(task, 0.0)
+            if p - c > self.config.max_single_task_regression:
+                rejection_reasons.append(
+                    f"Catastrophic regression on {task}: {p:.3f} -> {c:.3f} "
+                    f"(drop of {p - c:.3f} > {self.config.max_single_task_regression})"
+                )
+                break  # One is enough to reject
+
+        # Gate 6: Canary task protection
+        canary_tasks = canary_tasks or []
+        for canary in canary_tasks:
+            if canary in per_task_parent and canary in per_task_child:
+                p = per_task_parent[canary]
+                c = per_task_child[canary]
+                if p - c > self.config.canary_regression_threshold:
+                    rejection_reasons.append(
+                        f"Canary task {canary} regressed: {p:.3f} -> {c:.3f}"
+                    )
 
         accepted = len(rejection_reasons) == 0
 
@@ -225,10 +307,29 @@ class Governor:
                 "parent": parent_scores,
                 "child": child_scores,
             },
+            "diagnostics": diagnostics,
         }
 
         self.decision_log.append(decision)
+        self.acceptance_rate_window.append(accepted)
+        if len(self.acceptance_rate_window) > 100:
+            self.acceptance_rate_window = self.acceptance_rate_window[-100:]
+
         return decision
+
+    def get_acceptance_rate(self) -> float:
+        """Return the recent acceptance rate."""
+        if not self.acceptance_rate_window:
+            return 0.0
+        return sum(self.acceptance_rate_window) / len(self.acceptance_rate_window)
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Return Governor statistics."""
+        return {
+            "total_decisions": len(self.decision_log),
+            "acceptance_rate": self.get_acceptance_rate(),
+            "recent_decisions": len(self.acceptance_rate_window),
+        }
 
 
 # ── Strategy Registry ────────────────────────────────────────────────

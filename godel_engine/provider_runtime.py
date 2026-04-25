@@ -1,5 +1,28 @@
+"""
+Provider runtime configuration for GodelEnv hybrid mode.
+
+GodelEnv uses a hybrid execution model:
+1. **LLM-first (default)**: Tries configured LLM providers in order
+2. **Deterministic fallback**: If all LLM providers fail, uses heuristic policy
+
+Provider priority (configurable via GODEL_PROVIDER_ORDER):
+1. huggingface - HF Router / Inference API
+2. ollama - Local Ollama instance
+3. custom - Any OpenAI-compatible endpoint (vLLM, etc.)
+4. openai - OpenAI API
+
+To use a local model (Ollama):
+    OLLAMA_API_BASE_URL=http://localhost:11434/v1
+    OLLAMA_MODEL_NAME=qwen2.5:7b
+
+To use a local model (vLLM):
+    API_BASE_URL=http://localhost:8000/v1
+    API_KEY=dummy  # vLLM often doesn't need real auth
+    MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+"""
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 
@@ -7,11 +30,14 @@ from dotenv import load_dotenv
 
 
 load_dotenv(override=False)
+logger = logging.getLogger("godel_env.provider_runtime")
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_ROUTER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_HF_ROUTER_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_PROVIDER_ORDER = ("huggingface", "custom", "openai")
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_PROVIDER_ORDER = ("huggingface", "ollama", "custom", "openai")
 
 
 @dataclass(frozen=True)
@@ -111,6 +137,45 @@ def _build_huggingface_provider() -> ProviderConfig | None:
     )
 
 
+def _build_ollama_provider() -> ProviderConfig | None:
+    """
+    Build Ollama provider for local model inference.
+    
+    Ollama runs locally and provides an OpenAI-compatible API.
+    No API key is required for local instances.
+    
+    Configuration:
+        OLLAMA_API_BASE_URL=http://localhost:11434/v1
+        OLLAMA_MODEL_NAME=qwen2.5:7b
+    """
+    base_url = _env("OLLAMA_API_BASE_URL") or _env("OLLAMA_HOST")
+    
+    # Also check if the default Ollama endpoint is accessible
+    if not base_url:
+        # Check if GODEL_USE_OLLAMA is set to enable auto-detection
+        if _env("GODEL_USE_OLLAMA") or _env("OLLAMA_MODEL_NAME"):
+            base_url = DEFAULT_OLLAMA_BASE_URL
+    
+    if not base_url:
+        return None
+    
+    # Ollama doesn't require an API key for local access
+    api_key = _env("OLLAMA_API_KEY") or "ollama"  # Placeholder for OpenAI client
+    
+    model_name = (
+        _env("OLLAMA_MODEL_NAME")
+        or _env("OLLAMA_MODEL")
+        or DEFAULT_OLLAMA_MODEL
+    )
+    
+    return ProviderConfig(
+        name="ollama",
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+    )
+
+
 def _provider_order() -> list[str]:
     raw = _env("GODEL_PROVIDER_ORDER")
     if not raw:
@@ -130,10 +195,22 @@ def _provider_order() -> list[str]:
 
 
 def load_provider_configs() -> list[ProviderConfig]:
+    """
+    Load all configured LLM providers in priority order.
+    
+    Returns providers in order of preference:
+    1. huggingface - HF Router / Inference API
+    2. ollama - Local Ollama instance  
+    3. custom - Any OpenAI-compatible endpoint (vLLM, etc.)
+    4. openai - OpenAI API
+    
+    Customize order via GODEL_PROVIDER_ORDER env var.
+    """
     candidates = {
         "custom": _build_custom_provider(),
         "openai": _build_openai_provider(),
         "huggingface": _build_huggingface_provider(),
+        "ollama": _build_ollama_provider(),
     }
 
     configs: list[ProviderConfig] = []
@@ -141,6 +218,18 @@ def load_provider_configs() -> list[ProviderConfig]:
         config = candidates.get(name)
         if config is not None:
             configs.append(config)
+    
+    if configs:
+        logger.info(
+            "Configured LLM providers (in priority order): %s",
+            ", ".join(f"{c.name}:{c.model_name}" for c in configs)
+        )
+    else:
+        logger.warning(
+            "No LLM providers configured. Set HF_TOKEN, OPENAI_API_KEY, or "
+            "OLLAMA_MODEL_NAME to enable LLM mode."
+        )
+    
     return configs
 
 
@@ -173,6 +262,7 @@ def describe_provider_configs() -> list[dict[str, str | bool | None]]:
 def describe_provider_environment() -> dict[str, bool]:
     """Return non-secret presence checks for supported provider env vars."""
     return {
+        # Hugging Face
         "HF_TOKEN": bool(_env("HF_TOKEN")),
         "HF_API_KEY": bool(_env("HF_API_KEY")),
         "HUGGINGFACE_API_KEY": bool(_env("HUGGINGFACE_API_KEY")),
@@ -180,9 +270,30 @@ def describe_provider_environment() -> dict[str, bool]:
         "HUGGINGFACEHUB_API_TOKEN": bool(_env("HUGGINGFACEHUB_API_TOKEN")),
         "HUGGING_FACE_HUB_TOKEN": bool(_env("HUGGING_FACE_HUB_TOKEN")),
         "HF_ACCESS_TOKEN": bool(_env("HF_ACCESS_TOKEN")),
+        # Custom / vLLM
         "API_KEY": bool(_env("API_KEY")),
+        "API_BASE_URL": bool(_env("API_BASE_URL")),
+        # OpenAI
         "OPENAI_API_KEY": bool(_env("OPENAI_API_KEY")),
+        # Ollama (local)
+        "OLLAMA_API_BASE_URL": bool(_env("OLLAMA_API_BASE_URL")),
+        "OLLAMA_MODEL_NAME": bool(_env("OLLAMA_MODEL_NAME")),
+        "GODEL_USE_OLLAMA": bool(_env("GODEL_USE_OLLAMA")),
     }
+
+
+def get_active_provider() -> str | None:
+    """Return the name of the first available LLM provider, or None."""
+    configs = load_provider_configs()
+    for config in configs:
+        if config.api_key and not ProviderCircuitBreaker.is_disabled(config.name):
+            return config.name
+    return None
+
+
+def is_llm_available() -> bool:
+    """Check if any LLM provider is configured and available."""
+    return get_active_provider() is not None
 
 
 class ProviderCircuitBreaker:

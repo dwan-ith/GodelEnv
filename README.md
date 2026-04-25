@@ -10,19 +10,67 @@ pinned: false
 
 GodelEnv is a reinforcement learning environment built on the `openenv-core` framework. It is designed to move beyond static, single-turn task optimization. Instead of merely rewarding an agent for producing a correct final answer, GodelEnv provides the infrastructure for **recursive skill amplification**: an agent can propose mutations to its own reasoning strategy, test those mutations against hidden downstream tasks, and retain them only if they genuinely improve multi-objective utility.
 
-## The Problem
+**Product Definition:**
+> "GodelEnv is an OpenEnv environment for training agents to propose, test, and selectively adopt self-modifications to their own reasoning and coding strategies under verifier-backed meta-evaluation."
 
-Most LLM training environments focus on evaluating outputs against a fixed rubric (e.g., did the code pass the test? is the QA factually correct?). While effective for skill acquisition, this approach does not teach an agent *how to learn* or *how to adapt its reasoning*.
+## The Core Idea
 
-GodelEnv introduces a meta-loop. In a `strategy_optimization` episode, the agent sees its current reasoning strategy, recent failure cases, and downstream scores. It can then output a `StrategyPatch`. 
+GodelEnv implements a practical approximation of [Gödel-machine-style](https://people.idsia.ch/~juergen/gmweb4/gmweb4.html) self-improvement:
+- **Self-modification is explicit**: The agent proposes `StrategyPatch` mutations to its reasoning policy
+- **Improvement proposals are testable**: Patches are evaluated on held-out task bundles
+- **Acceptance depends on objective evidence**: The Governor accepts/rejects based on multi-objective utility, not vibes
 
-Instead of blindly accepting the mutation, the environment plays the role of a rigorous experimental sandbox:
-1. It builds a child strategy from the patch.
-2. It evaluates the parent vs. the child strategy on a bundle of held-out, episodic downstream tasks.
-3. A Governor applies regression gates and anti-hacking guards.
-4. The patch is accepted only if it demonstrates verifiable, generalized improvement.
+This follows the pattern validated by [AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/): LLM proposals + automated verifiers + evolutionary selection.
 
-This shifts the RL objective from "answering a question" to "improving the policy that answers questions."
+## The Recursive Ladder
+
+GodelEnv supports multiple levels of self-improvement:
+- **Level 1**: Improve a solution (legacy mode)
+- **Level 2**: Improve the strategy that produces solutions (primary mode)
+- **Level 3**: Improve the search procedure that improves the strategy (via training)
+- **Level 4**: Improve resource allocation under cost, latency, and safety constraints
+
+## Architecture
+
+The environment is centered on strategy improvement, with task families serving as **evaluation substrate**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                RECURSIVE SELF-IMPROVEMENT                   │
+│                                                             │
+│   Agent observes: current_strategy + failures + scores      │
+│                          ↓                                  │
+│   Agent proposes: StrategyPatch mutation                    │
+│                          ↓                                  │
+│   Evaluator runs: parent vs child on held-out domains       │
+│   (factual_qa, code_improvement, reasoning, alignment_qa,   │
+│    python_optimized, adr_writing)                           │
+│                          ↓                                  │
+│   Governor decides: accept/reject with multi-objective      │
+│   utility (correctness, generalization, robustness,         │
+│   cost, stability, safety)                                  │
+│                          ↓                                  │
+│   Registry updates: lineage, Elo ratings, failure cases     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Core Components
+
+- **StrategyPatch**: The fundamental action — a proposed mutation to the reasoning policy
+- **Governor**: Multi-gate acceptance filter (improvement, regression, variance, sample size, catastrophic, canary)
+- **StrategyEvaluator**: Runs strategies on held-out task bundles
+- **StrategyRegistry**: Stores accepted strategies with lineage and Elo ratings
+- **HuxleyTracker**: Tracks Clade-Metaproductivity (strategies that produce better descendants)
+
+### Anti-Hacking Guards
+
+This is absolutely central. The Governor implements multiple gates to prevent reward hacking:
+1. **Improvement Gate**: Child must have higher multi-objective utility than parent
+2. **Regression Gate**: Child must not regress on too many individual tasks
+3. **Stability Gate**: Child must have acceptable variance across domains
+4. **Sample Size Gate**: Must evaluate on enough tasks for valid decision
+5. **Catastrophic Gate**: No single task can regress too severely
+6. **Canary Gate**: Special canary tasks must not regress
 
 ## Architecture
 
@@ -35,44 +83,64 @@ GodelEnv behaves as a fully compliant OpenEnv service, making it compatible with
 
 ### Supported Providers
 
-The environment supports rapid iteration across major inference providers:
+GodelEnv supports multiple LLM providers with automatic failover. **LLM mode is the default** - deterministic fallback only occurs when all providers fail.
+
+**Provider Priority** (configurable via `GODEL_PROVIDER_ORDER`):
+1. `huggingface` - HF Router / Inference API
+2. `ollama` - Local Ollama instance (no API key needed)
+3. `custom` - Any OpenAI-compatible endpoint (vLLM, etc.)
+4. `openai` - OpenAI API
 
 ```bash
-# OpenAI Configuration
+# Hugging Face Router (recommended for HF Spaces)
+set HF_TOKEN=...
+set HF_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+# Also accepts: HF_API_KEY, HUGGINGFACE_API_KEY, HUGGINGFACE_TOKEN, etc.
+
+# Local Ollama (no API key required)
+set OLLAMA_MODEL_NAME=qwen2.5:7b
+# Or with custom host:
+set OLLAMA_API_BASE_URL=http://localhost:11434/v1
+
+# Local vLLM or other OpenAI-compatible server
+set API_BASE_URL=http://localhost:8000/v1
+set API_KEY=dummy
+set MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+
+# OpenAI API
 set OPENAI_API_KEY=...
 set OPENAI_MODEL_NAME=gpt-4o-mini
-
-# Custom/vLLM/Ollama Configuration
-set API_KEY=...
-set API_BASE_URL=https://your-openai-compatible-provider/v1
-set CUSTOM_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-
-# Hugging Face Router Configuration
-set HF_TOKEN=...
-# Also accepted: HF_API_KEY, HUGGINGFACE_API_KEY, HUGGINGFACE_TOKEN,
-# HUGGINGFACEHUB_API_TOKEN, HUGGING_FACE_HUB_TOKEN, HF_ACCESS_TOKEN.
-set HF_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-set HF_API_BASE_URL=https://router.huggingface.co/v1
 ```
 
-HF Spaces-style secrets also work without renaming:
-
+**HF Spaces Secrets** - These work automatically without renaming:
 ```bash
 HF_TOKEN=...
 API_BASE_URL=https://router.huggingface.co/v1
 MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
 ```
 
-Common runtime flags to control the hybrid execution:
+**Quick Local Setup with Ollama**:
 ```bash
-set GODEL_GRADING_MODE=auto
-set GODEL_STRATEGY_EVAL_MODE=auto
-set GODEL_PROVIDER_ORDER=huggingface,custom,openai
+# Install Ollama: https://ollama.ai/
+ollama pull qwen2.5:7b
+set OLLAMA_MODEL_NAME=qwen2.5:7b
+python demo.py  # Uses local model!
 ```
 
-To confirm that the runtime is using your HF key instead of silently falling
-back, run:
+**Runtime Flags**:
+```bash
+# These default to "auto" (LLM-first with deterministic fallback)
+set GODEL_GRADING_MODE=auto
+set GODEL_STRATEGY_EVAL_MODE=auto
 
+# Customize provider priority
+set GODEL_PROVIDER_ORDER=ollama,huggingface,openai
+
+# Require LLM (error instead of fallback)
+set GODEL_REQUIRE_LLM=1
+```
+
+**Verify your setup**:
 ```bash
 python hybrid_smoke.py --require-llm
 ```
@@ -123,8 +191,16 @@ The committed training evidence (available in `artifacts/training_run`) demonstr
 
 | Metric | Baseline | Trained | Delta |
 | --- | ---: | ---: | ---: |
-| Mean reward | 0.4090 | 0.5224 | **+0.1134** |
-| Mean score | 0.7361 | 0.8384 | **+0.1023** |
+| Mean reward | 0.4074 | 0.4992 | **+0.0918** |
+| Mean score | 0.7221 | 0.8152 | **+0.0931** |
+
+**Per-Task Improvement:**
+| Task | Baseline | Trained |
+| --- | ---: | ---: |
+| factual_qa | 0.9554 | 0.9554 |
+| alignment_qa | 0.6319 | 0.7178 |
+| reasoning | 0.7917 | 1.0000 |
+| strategy_optimization | 0.5093 | 0.5877 |
 
 #### Loss Curve (SFT)
 ![SFT loss curve](artifacts/training_run/loss_curve.png)

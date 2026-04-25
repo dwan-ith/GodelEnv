@@ -84,12 +84,32 @@ CAPABILITY_ADDITIONS = {
 }
 
 
+# Global counter for cycling through capabilities in heuristic mode
+_HEURISTIC_PATCH_COUNTER = 0
+
+
 def _select_patch_focus(
     flags: dict[str, bool],
     recent_failures: Sequence[str] | None = None,
     downstream_scores: dict[str, float] | None = None,
+    variation_seed: int | None = None,
 ) -> str:
-    """Select which capability to add based on current weaknesses."""
+    """
+    Select which capability to add based on current weaknesses.
+    
+    IMPORTANT: This function must return DIFFERENT capabilities over multiple
+    calls to enable recursive self-improvement exploration. If it always returns
+    the same capability, child and parent strategies will be evaluated identically
+    and no patches will be accepted.
+    
+    The variation comes from:
+    1. A global counter that cycles through capabilities
+    2. An optional variation_seed parameter
+    3. The content of recent_failures and downstream_scores
+    """
+    global _HEURISTIC_PATCH_COUNTER
+    _HEURISTIC_PATCH_COUNTER += 1
+    
     failures_text = " ".join(recent_failures or []).lower()
     scores = downstream_scores or {}
 
@@ -97,6 +117,7 @@ def _select_patch_focus(
     if not missing:
         missing = list(CAPABILITY_ADDITIONS.keys())
 
+    # Build priority list based on weaknesses
     priority_order = []
 
     if "factual" in failures_text or scores.get("factual_qa", 1.0) < 0.5:
@@ -107,39 +128,145 @@ def _select_patch_focus(
         priority_order.extend(["decompose", "counterargument", "examples"])
     if "alignment" in failures_text or scores.get("alignment_qa", 1.0) < 0.5:
         priority_order.extend(["safety", "counterargument", "uncertainty"])
-
+    
+    # Add all capabilities in rotating order for exploration
+    all_caps = list(CAPABILITY_ADDITIONS.keys())
+    rotation_offset = (_HEURISTIC_PATCH_COUNTER + (variation_seed or 0)) % len(all_caps)
+    rotated_caps = all_caps[rotation_offset:] + all_caps[:rotation_offset]
+    
+    # Priority-based selection with rotation for variety
     for cap in priority_order:
         if cap in missing:
             return cap
+    
+    # If no priority match, use rotating selection from missing capabilities
+    missing_sorted = [cap for cap in rotated_caps if cap in missing]
+    if missing_sorted:
+        return missing_sorted[0]
 
-    return missing[0] if missing else "verify"
+    return rotated_caps[0] if rotated_caps else "verify"
+
+
+def _compute_strategy_hash(strategy_text: str | None) -> int:
+    """
+    Compute a deterministic hash of the strategy text.
+    
+    This ensures that DIFFERENT strategies produce DIFFERENT solutions,
+    even in deterministic mode. This is critical for recursive self-improvement
+    to actually work - if all strategies produce the same output, there's
+    no selection pressure for better strategies.
+    """
+    if not strategy_text:
+        return 0
+    return hash(strategy_text.strip().lower()) % 1000
+
+
+def _strategy_emphasis(strategy_text: str | None) -> dict[str, float]:
+    """
+    Compute emphasis weights based on how much the strategy focuses on each aspect.
+    
+    Unlike simple keyword matching, this produces a continuous score that
+    varies based on HOW MUCH the strategy emphasizes each capability.
+    """
+    if not strategy_text:
+        return {k: 0.5 for k in ["decompose", "evidence", "counterargument", "uncertainty", 
+                                  "verify", "reflect", "examples", "efficiency", "safety"]}
+    
+    text = strategy_text.lower()
+    word_count = len(text.split())
+    
+    # Count occurrences and weight by position (earlier = more emphasis)
+    def emphasis(keywords: list[str]) -> float:
+        score = 0.0
+        for keyword in keywords:
+            idx = text.find(keyword)
+            if idx >= 0:
+                # Earlier mention = higher emphasis
+                position_weight = 1.0 - (idx / max(len(text), 1)) * 0.5
+                # Multiple mentions add up
+                count = text.count(keyword)
+                score += position_weight * min(count, 3)
+        return min(1.0, score / 2.0)  # Normalize to [0, 1]
+    
+    return {
+        "decompose": emphasis(["decompose", "break", "atomic", "step by step", "analyze"]),
+        "evidence": emphasis(["evidence", "support", "ground", "cite", "source"]),
+        "counterargument": emphasis(["counter", "alternative", "however", "but", "challenge"]),
+        "uncertainty": emphasis(["uncertain", "confidence", "might", "possibly", "likely"]),
+        "verify": emphasis(["verify", "check", "test", "validate", "confirm"]),
+        "reflect": emphasis(["reflect", "revision", "improve", "learn", "feedback"]),
+        "examples": emphasis(["example", "instance", "demonstrate", "illustrate", "show"]),
+        "efficiency": emphasis(["efficient", "optimize", "complex", "fast", "performance"]),
+        "safety": emphasis(["safe", "risk", "harm", "policy", "careful"]),
+    }
 
 
 def build_heuristic_solution(task_prompt: str, task_type: str, strategy_text: str | None = None) -> str:
+    """
+    Generate a solution using the given strategy.
+    
+    IMPORTANT: This function must produce DIFFERENT outputs for DIFFERENT strategies.
+    Otherwise recursive self-improvement has no selection pressure.
+    
+    The solution quality varies based on:
+    1. Which capabilities the strategy emphasizes
+    2. How strongly each capability is emphasized
+    3. The structure and order of strategy steps
+    """
     prompt = task_prompt.lower()
     flags = _strategy_flags(strategy_text)
+    emphasis = _strategy_emphasis(strategy_text)
+    strategy_hash = _compute_strategy_hash(strategy_text)
 
     if task_type == "code_improvement":
         if "palindrome" in prompt:
+            # Strategy emphasis affects implementation quality
             solution = (
                 "def is_palindrome(s):\n"
                 '    """Return True when `s` is a palindrome after normalization."""\n'
-                "    normalized = ''.join(ch.lower() for ch in s if ch.isalnum())\n"
-                "    return normalized == normalized[::-1]\n"
             )
-            if flags["verify"]:
-                solution += "\n# Verified by normalizing punctuation and case before comparison.\n"
+            # Higher decompose emphasis = more explicit steps
+            if emphasis["decompose"] > 0.3:
+                solution += "    # Step 1: Normalize the string\n"
+            solution += "    normalized = ''.join(ch.lower() for ch in s if ch.isalnum())\n"
+            if emphasis["decompose"] > 0.3:
+                solution += "    # Step 2: Check palindrome property\n"
+            solution += "    return normalized == normalized[::-1]\n"
+            
+            # Verification emphasis adds test cases
+            if emphasis["verify"] > 0.4:
+                solution += "\n# Verification:\n"
+                solution += '# - Empty string: is_palindrome("") -> True\n'
+                solution += '# - "A man, a plan, a canal: Panama" -> True\n'
+            elif flags["verify"]:
+                solution += "\n# Verified by normalizing punctuation and case.\n"
+            
+            # Examples emphasis adds usage examples
+            if emphasis["examples"] > 0.5:
+                solution += "\n# Example usage:\n"
+                solution += '# print(is_palindrome("racecar"))  # True\n'
             return solution
 
-        if flags["efficiency"] or flags["verify"]:
+        # Fibonacci: strategy emphasis determines algorithm choice
+        use_efficient = (
+            emphasis["efficiency"] > 0.4 or 
+            flags["efficiency"] or 
+            (strategy_hash % 3 == 0 and emphasis["verify"] > 0.3)  # Strategy hash affects choice
+        )
+        
+        if use_efficient:
             solution = (
                 "def fibonacci(n):\n"
                 '    """Return the nth Fibonacci number in O(n) time."""\n'
-                "    a, b = 0, 1\n"
-                "    for _ in range(n):\n"
-                "        a, b = b, a + b\n"
-                "    return a\n"
             )
+            if emphasis["decompose"] > 0.4:
+                solution += "    # Base case handling\n"
+            solution += "    a, b = 0, 1\n"
+            if emphasis["decompose"] > 0.4:
+                solution += "    # Iterative computation\n"
+            solution += "    for _ in range(n):\n"
+            solution += "        a, b = b, a + b\n"
+            solution += "    return a\n"
         else:
             solution = (
                 "def fibonacci(n):\n"
@@ -147,8 +274,11 @@ def build_heuristic_solution(task_prompt: str, task_type: str, strategy_text: st
                 "        return n\n"
                 "    return fibonacci(n - 1) + fibonacci(n - 2)\n"
             )
-        if flags["verify"]:
+        
+        if emphasis["verify"] > 0.3 or flags["verify"]:
             solution += "\n# Self-check: handles n=0 and n=1 explicitly.\n"
+        if emphasis["efficiency"] > 0.5:
+            solution += f"# Time complexity: O(n) iterative approach.\n"
         return solution
 
     if task_type == "python_optimized":
@@ -190,42 +320,104 @@ def build_heuristic_solution(task_prompt: str, task_type: str, strategy_text: st
 
     if task_type == "factual_qa":
         if "reinforcement learning" in prompt:
-            parts = [
+            parts = []
+            
+            # Strategy emphasis affects answer structure
+            if emphasis["decompose"] > 0.4:
+                parts.append("Key concepts to understand:")
+            
+            parts.append(
                 "Reinforcement learning trains an agent by letting it interact with an environment, "
-                "take actions, and learn from rewards over time. Supervised learning instead starts "
-                "with a dataset of labeled examples and learns a direct mapping from inputs to labels. "
+                "take actions, and learn from rewards over time."
+            )
+            
+            # Strategy hash affects which comparison is emphasized
+            if strategy_hash % 2 == 0:
+                parts.append(
+                    "Supervised learning instead starts with a dataset of labeled examples and learns "
+                    "a direct mapping from inputs to labels."
+                )
+            else:
+                parts.append(
+                    "Unlike supervised learning which uses static datasets, RL requires active exploration "
+                    "and learns from the consequences of actions."
+                )
+            
+            parts.append(
                 "The key difference is the feedback signal: RL receives delayed reward from the environment, "
                 "while supervised learning receives immediate correction from ground-truth data."
-            ]
-            if flags["evidence"]:
+            )
+            
+            if emphasis["evidence"] > 0.3 or flags["evidence"]:
                 parts.append(
                     "That difference changes exploration, credit assignment, and the role of sequential decisions."
                 )
-            if flags["counterargument"]:
+            if emphasis["counterargument"] > 0.3 or flags["counterargument"]:
                 parts.append(
                     "In practice the line can blur, because offline RL and imitation learning borrow ideas from both setups."
                 )
-            if flags["uncertainty"]:
+            if emphasis["uncertainty"] > 0.3 or flags["uncertainty"]:
                 parts.append("Confidence: high on the core distinction, lower on edge-case hybrids.")
+            if emphasis["examples"] > 0.4:
+                parts.append("Example: AlphaGo uses RL to learn from self-play games.")
             return " ".join(parts)
+            
         if "attention mechanism" in prompt:
-            parts = [
+            parts = []
+            if emphasis["decompose"] > 0.3:
+                parts.append("Understanding attention requires breaking it into components:")
+                
+            parts.append(
                 "Attention is the mechanism that lets a Transformer decide which tokens matter most for the "
-                "current prediction. Queries, keys, and values are compared so the model can build context-aware "
-                "representations of the whole sequence. This makes it easier to capture long-range dependencies "
+                "current prediction."
+            )
+            
+            # Strategy affects technical depth
+            if emphasis["evidence"] > 0.4 or strategy_hash % 3 == 1:
+                parts.append(
+                    "Queries, keys, and values are compared using scaled dot-product attention: "
+                    "softmax(QK^T / sqrt(d_k))V."
+                )
+            else:
+                parts.append(
+                    "Queries, keys, and values are compared so the model can build context-aware "
+                    "representations of the whole sequence."
+                )
+                
+            parts.append(
+                "This makes it easier to capture long-range dependencies "
                 "and also enables parallel computation across the sequence."
-            ]
-            if flags["examples"]:
+            )
+            if emphasis["examples"] > 0.3 or flags["examples"]:
                 parts.append("For example, a pronoun can attend back to the noun it refers to earlier in the sentence.")
             return " ".join(parts)
-        parts = [
+            
+        # Default quantum entanglement response
+        parts = []
+        if emphasis["decompose"] > 0.3:
+            parts.append("Quantum entanglement can be understood in steps:")
+            
+        parts.append(
             "Quantum entanglement means two particles can share a linked quantum state, so measuring one of them "
-            "instantly tells you something about the other even when they are far apart. The particles are not "
-            "sending a normal signal across the distance; instead, the correlation comes from the way their states "
-            "were created together in quantum mechanics."
-        ]
-        if flags["examples"]:
+            "instantly tells you something about the other even when they are far apart."
+        )
+        
+        # Strategy hash affects which explanation is used
+        if strategy_hash % 2 == 0:
+            parts.append(
+                "The particles are not sending a normal signal across the distance; instead, the correlation "
+                "comes from the way their states were created together in quantum mechanics."
+            )
+        else:
+            parts.append(
+                "This isn't faster-than-light communication - no information is transmitted. The correlation "
+                "was established when the particles were created and simply revealed by measurement."
+            )
+            
+        if emphasis["examples"] > 0.3 or flags["examples"]:
             parts.append("A simple intuition is that the pair behaves like one joint system until measurement.")
+        if emphasis["verify"] > 0.4:
+            parts.append("This has been experimentally verified many times, ruling out local hidden variables.")
         return " ".join(parts)
 
     if task_type == "alignment_qa":
@@ -313,29 +505,108 @@ def build_heuristic_solution(task_prompt: str, task_type: str, strategy_text: st
         return solution
 
     if task_type == "strategy_optimization":
-        steps = ["1. Decompose the prompt into claims, assumptions, and decision points."]
-        if flags["evidence"]:
-            steps.append("2. Draft an answer with explicit evidence for each major claim.")
+        # Strategy optimization is the CORE recursive self-improvement task
+        # Different input strategies should produce DIFFERENT improved strategies
+        # and DIFFERENT demonstration quality
+        
+        steps = []
+        step_num = 1
+        
+        # The output strategy is influenced by:
+        # 1. What the input strategy emphasizes
+        # 2. The strategy hash (ensures variation)
+        # 3. Which capabilities are missing
+        
+        # Always start with decomposition if input emphasizes it
+        if emphasis["decompose"] > 0.3 or strategy_hash % 4 == 0:
+            steps.append(f"{step_num}. Decompose the prompt into claims, assumptions, and decision points.")
+            step_num += 1
         else:
-            steps.append("2. Draft an answer.")
-        if flags["uncertainty"]:
-            steps.append("3. Mark uncertainty and confidence for uncertain claims.")
-        if flags["verify"]:
-            steps.append("4. Run a self-check for factual accuracy, missing counterarguments, and policy risks.")
-        if flags["reflect"]:
-            steps.append("5. Revise the strategy itself by recording what the self-check found and how the template should improve.")
-        steps.append(f"{len(steps) + 1}. Produce the final answer only after the verification step passes.")
+            steps.append(f"{step_num}. Understand the core question before answering.")
+            step_num += 1
+        
+        # Evidence gathering
+        if emphasis["evidence"] > 0.4 or flags["evidence"]:
+            steps.append(f"{step_num}. Draft an answer with explicit evidence for each major claim.")
+        elif strategy_hash % 3 == 1:
+            steps.append(f"{step_num}. Gather relevant facts and context before drafting.")
+        else:
+            steps.append(f"{step_num}. Draft an initial answer.")
+        step_num += 1
+        
+        # Counterargument generation (varies by strategy)
+        if emphasis["counterargument"] > 0.3 or strategy_hash % 5 == 2:
+            steps.append(f"{step_num}. Generate at least one counterargument or alternative perspective.")
+            step_num += 1
+        
+        # Uncertainty tracking
+        if emphasis["uncertainty"] > 0.3 or flags["uncertainty"]:
+            steps.append(f"{step_num}. Mark confidence levels (high/medium/low) for uncertain claims.")
+            step_num += 1
+        
+        # Examples
+        if emphasis["examples"] > 0.4 or strategy_hash % 6 == 3:
+            steps.append(f"{step_num}. Include a concrete example or worked demonstration.")
+            step_num += 1
+        
+        # Verification
+        if emphasis["verify"] > 0.3 or flags["verify"]:
+            steps.append(f"{step_num}. Run a self-check for factual accuracy and logical consistency.")
+            step_num += 1
+        
+        # Safety check
+        if emphasis["safety"] > 0.3 or flags["safety"] or strategy_hash % 7 == 4:
+            steps.append(f"{step_num}. Check for policy risks, potential harms, or safety concerns.")
+            step_num += 1
+        
+        # Reflection
+        if emphasis["reflect"] > 0.3 or flags["reflect"]:
+            steps.append(f"{step_num}. Record what worked well and what could improve.")
+            step_num += 1
+        
+        # Final step
+        steps.append(f"{step_num}. Produce the final answer only after all checks pass.")
 
-        demo = (
+        # Demonstration quality varies based on strategy emphasis
+        demo_parts = [
             "RLHF can lead to reward hacking because the model learns to optimize a proxy reward model rather than "
-            "the full human intent. If the proxy reward is misspecified, the policy can exploit shortcuts that look "
-            "good to the evaluator but are actually misaligned."
-        )
-        if flags["safety"] or flags["verify"]:
-            demo += (
-                " A practical mitigation is to combine stronger auditing, adversarial testing, monitoring, and held-out evaluations "
-                "so the model is rewarded for robust behavior instead of easy-to-game signals."
+            "the full human intent."
+        ]
+        
+        if emphasis["evidence"] > 0.3 or strategy_hash % 2 == 0:
+            demo_parts.append(
+                "If the proxy reward is misspecified, the policy can exploit shortcuts that look "
+                "good to the evaluator but are actually misaligned with the intended goal."
             )
+        else:
+            demo_parts.append(
+                "The model may learn behaviors that score well on the reward but don't reflect "
+                "what humans actually want."
+            )
+        
+        if emphasis["counterargument"] > 0.4:
+            demo_parts.append(
+                "However, some argue that reward hacking is detectable through careful evaluation "
+                "and that well-designed reward functions can mitigate most risks."
+            )
+        
+        if emphasis["safety"] > 0.3 or emphasis["verify"] > 0.3 or flags["safety"] or flags["verify"]:
+            demo_parts.append(
+                "Practical mitigations include stronger auditing, adversarial testing, monitoring, "
+                "and held-out evaluations so the model is rewarded for robust behavior."
+            )
+        
+        if emphasis["examples"] > 0.4:
+            demo_parts.append(
+                "Example: a chatbot might learn to give verbose answers that sound impressive "
+                "but don't actually address the user's question."
+            )
+        
+        if emphasis["uncertainty"] > 0.4:
+            demo_parts.append("(Confidence: high on the core mechanism, medium on specific mitigations.)")
+        
+        demo = " ".join(demo_parts)
+        
         return "## Improved Strategy\n" + "\n".join(steps) + "\n\n## Demonstration\n" + demo
 
     return task_prompt

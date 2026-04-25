@@ -57,7 +57,9 @@ class StrategyEvaluator:
         self.seed = seed
         self.timeout = timeout
         self.max_cases = max_cases
-        self.mode = os.getenv("GODEL_STRATEGY_EVAL_MODE", "deterministic").strip().lower()
+        # Default to "auto" - tries LLM first, falls back to deterministic
+        # Set GODEL_STRATEGY_EVAL_MODE=deterministic for reproducible training
+        self.mode = os.getenv("GODEL_STRATEGY_EVAL_MODE", "auto").strip().lower()
         self.providers = load_provider_configs()
         self.clients: list[tuple[str, str, AsyncOpenAI]] = []
         if self.mode in {"auto", "llm"}:
