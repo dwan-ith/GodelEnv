@@ -4,23 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "godel_engine"
-version = "0.3.0"
-description = "A self-improving RL environment for strategy evolution."
+version = "2.0.0"
+description = "A recursive self-improvement environment where agents mutate their own reasoning strategies."
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0",
     "httpx>=0.20.0",
     "openai>=1.0.0",
     "python-dotenv>=1.0.1",
-    "openenv-core>=0.2.0"
+    "openenv-core>=0.2.0",
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "fastapi",
-    "uvicorn",
-    "websockets"
 ]
 train = [
     "trl>=0.15",
@@ -29,10 +29,11 @@ train = [
     "torch>=2.1",
     "wandb",
     "unsloth",
+    "matplotlib",
 ]
 
 [project.scripts]
 server = "server.app:main"
 
-[tool.setuptools]
-packages = ["godel_engine"]
+[tool.setuptools.packages.find]
+include = ["godel_engine*", "server*"]

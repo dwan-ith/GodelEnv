@@ -71,8 +71,11 @@ async def run_demo_episode(
         action = await agent.act(
             task_prompt=obs.task_prompt,
             current_solution=obs.current_solution,
-            rubrics=obs.rubric_scores.scores or env.current_task._get_rubrics(),
+            rubrics=env.current_task._get_rubrics(),
             task_type=task_type,
+            strategy_text=obs.current_strategy,
+            recent_failures=obs.recent_failures,
+            downstream_scores=obs.downstream_scores,
         )
         result = await env.step(action)
         obs = result.observation

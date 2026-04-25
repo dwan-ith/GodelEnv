@@ -1,89 +1,101 @@
 """
-Gödel Engine — EnvClient for remote access.
-
-Usage (async — recommended):
-    async with GodelEngineEnv(base_url="http://localhost:8000") as client:
-        result = await client.reset()
-        result = await client.step(GodelAction(solution="..."))
-
-Usage (sync):
-    with GodelEngineEnv(base_url="http://localhost:8000").sync() as client:
-        result = client.reset()
-        result = client.step(GodelAction(solution="..."))
+Godel Env client for persistent remote sessions over the OpenEnv websocket API.
 """
-
 from __future__ import annotations
 
 import asyncio
 import json
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
-import httpx
+import websockets
 
-from godel_engine.models import (
-    GodelAction,
-    GodelObservation,
-    GodelState,
-    GodelStepResult,
-)
+from godel_engine.models import GodelAction, GodelObservation, GodelState, GodelStepResult
+
+
+def _to_ws_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    return urlunparse((scheme, parsed.netloc, "/ws", "", "", ""))
+
+
+def _step_result_from_ws(payload: dict) -> GodelStepResult:
+    data = payload["data"]
+    obs = data["observation"]
+    done = bool(data.get("done", False))
+    return GodelStepResult(
+        observation=GodelObservation(**obs),
+        reward=float(data.get("reward", 0.0) or 0.0),
+        terminated=done,
+        truncated=False,
+        info={
+            "grading_source": obs.get("grading_source"),
+            "grading_error": obs.get("grading_error"),
+        },
+    )
 
 
 class GodelEngineEnv:
-    """
-    Async HTTP client for interacting with a remote Gödel Engine server.
-    Implements the OpenEnv EnvClient interface.
-    """
+    """Persistent remote client backed by the OpenEnv `/ws` session API."""
 
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:7860") -> None:
         self.base_url = base_url.rstrip("/")
-        self._client: Optional[httpx.AsyncClient] = None
+        self.ws_url = _to_ws_url(self.base_url)
+        self._ws = None
 
     async def __aenter__(self):
-        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
+        self._ws = await websockets.connect(self.ws_url)
         return self
 
     async def __aexit__(self, *args):
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        if self._ws is not None:
+            try:
+                await self._ws.send(json.dumps({"type": "close"}))
+            except Exception:
+                pass
+            await self._ws.close()
+            self._ws = None
 
-    def _ensure_client(self):
-        if self._client is None:
+    def _ensure_ws(self):
+        if self._ws is None:
             raise RuntimeError(
                 "Use GodelEngineEnv as an async context manager: "
                 "`async with GodelEngineEnv(...) as client:`"
             )
 
-    async def reset(self, task_type: str = "", difficulty: str = "") -> GodelStepResult:
-        """Reset the environment and get initial observation."""
-        self._ensure_client()
-        body = {}
-        if task_type:
-            body["task_type"] = task_type
-        if difficulty:
-            body["difficulty"] = difficulty
+    async def _send_and_receive(self, message: dict) -> dict:
+        self._ensure_ws()
+        await self._ws.send(json.dumps(message))
+        response = json.loads(await self._ws.recv())
+        if response.get("type") == "error":
+            raise RuntimeError(response.get("data", {}).get("message", "Unknown websocket error"))
+        return response
 
-        resp = await self._client.post("/reset", json=body)
-        resp.raise_for_status()
-        data = resp.json()
-        return GodelStepResult(**data)
+    async def reset(
+        self,
+        task_type: str = "",
+        difficulty: str = "",
+        task_id: str = "",
+    ) -> GodelStepResult:
+        data = {}
+        if task_type:
+            data["task_type"] = task_type
+        if difficulty:
+            data["difficulty"] = difficulty
+        if task_id:
+            data["task_id"] = task_id
+        response = await self._send_and_receive({"type": "reset", "data": data})
+        return _step_result_from_ws(response)
 
     async def step(self, action: GodelAction) -> GodelStepResult:
-        """Submit an action and get the result."""
-        self._ensure_client()
-        resp = await self._client.post("/step", json=action.model_dump())
-        resp.raise_for_status()
-        data = resp.json()
-        return GodelStepResult(**data)
+        response = await self._send_and_receive(
+            {"type": "step", "data": action.model_dump(mode="json")}
+        )
+        return _step_result_from_ws(response)
 
     async def state(self) -> GodelState:
-        """Get episode metadata."""
-        self._ensure_client()
-        resp = await self._client.get("/state")
-        resp.raise_for_status()
-        return GodelState(**resp.json())
-
-    # ── Sync wrapper ──────────────────────────────────────────────────
+        response = await self._send_and_receive({"type": "state"})
+        return GodelState(**response["data"])
 
     def sync(self) -> "SyncGodelEngineEnv":
         return SyncGodelEngineEnv(self)

@@ -1,26 +1,30 @@
 """
-Meta-Strategy Optimization (Godel/Recursive difficulty).
-
-TRUE SELF-IMPROVEMENT: The agent's evolved strategy template is tested
-against a downstream task. The grade measures whether the new template
-actually makes reasoning better — not just whether it *looks* better.
+Deterministic meta-strategy optimization task.
 """
-import random
-from typing import Optional, Dict
+from __future__ import annotations
 
+import random
+from typing import Optional
+
+from godel_engine.scoring import (
+    bullet_score,
+    keyword_groups_score,
+    length_score,
+    section_score,
+)
 from godel_engine.tasks.base import BaseTask, TaskInstance
-from godel_engine.graders.agent_grader import AgentGrader
+
 
 _STRATEGY_DATASET = [
     {
         "id": "godel01",
         "prompt": (
-            "You are given a Reasoning Template that an AI agent uses to solve problems. "
-            "Your job is to IMPROVE this template so it produces better answers.\n\n"
-            "The template will be tested against this downstream challenge:\n"
-            "  'Explain how RLHF can lead to reward hacking, and propose a mitigation.'\n\n"
-            "Evolve the template to include: self-verification steps, "
-            "hallucination checks, and structured reasoning stages."
+            "You are given a reasoning template that an AI agent uses to solve problems. "
+            "Improve the template so it produces better answers.\n\n"
+            "Your output must contain two sections:\n"
+            "1. `## Improved Strategy` with the revised template.\n"
+            "2. `## Demonstration` showing the strategy applied to this downstream challenge:\n"
+            "   Explain how RLHF can lead to reward hacking, and propose a mitigation.\n"
         ),
         "initial_solution": (
             "REASONING TEMPLATE v1:\n"
@@ -28,55 +32,74 @@ _STRATEGY_DATASET = [
             "2. Think about it.\n"
             "3. Write an answer."
         ),
-        "downstream_challenge": (
-            "Explain how RLHF can lead to reward hacking, and propose a mitigation."
-        ),
+        "required_strategy_groups": [
+            ("assumption", "assumptions"),
+            ("verify", "verification", "check"),
+            ("counterargument", "counter-example", "alternative hypothesis"),
+            ("uncertainty", "confidence"),
+            ("final answer", "answer"),
+        ],
+        "recursive_groups": [
+            ("revise the strategy", "update the strategy", "improve the template"),
+            ("lessons learned", "postmortem", "reflection"),
+        ],
+        "downstream_groups": [
+            ("reward hacking", "gaming"),
+            ("proxy reward", "proxy objective", "misspecified reward"),
+            ("exploit", "shortcut"),
+            ("mitigation", "monitoring", "auditing", "holdout"),
+        ],
     },
     {
         "id": "godel02",
         "prompt": (
-            "You are given a Strategy Template that an AI uses for step-by-step reasoning. "
-            "Your job is to IMPROVE this template so it produces more accurate, "
-            "verifiable outputs.\n\n"
-            "The template will be tested against this downstream challenge:\n"
-            "  'Compare the trade-offs between fine-tuning and in-context learning for domain adaptation.'\n\n"
-            "Evolve the template to include: counter-argument generation, "
-            "confidence calibration, and explicit uncertainty markers."
+            "You are given a reasoning template that an AI agent uses for step-by-step analysis. "
+            "Improve it so it produces more accurate, verifiable outputs.\n\n"
+            "Your output must contain two sections:\n"
+            "1. `## Improved Strategy` with the revised template.\n"
+            "2. `## Demonstration` showing the strategy applied to this downstream challenge:\n"
+            "   Compare the trade-offs between fine-tuning and in-context learning for domain adaptation.\n"
         ),
         "initial_solution": (
             "STRATEGY TEMPLATE v1:\n"
-            "- Identify the core claim.\n"
-            "- Support it with evidence.\n"
+            "- Identify the claim.\n"
+            "- Support it.\n"
             "- Conclude."
         ),
-        "downstream_challenge": (
-            "Compare the trade-offs between fine-tuning and in-context learning "
-            "for domain adaptation."
-        ),
+        "required_strategy_groups": [
+            ("decompose", "break the problem down"),
+            ("evidence", "supporting evidence"),
+            ("counterargument", "alternative"),
+            ("uncertainty", "confidence"),
+            ("self-check", "verify", "verification"),
+        ],
+        "recursive_groups": [
+            ("revise the strategy", "improve the template"),
+            ("feedback loop", "iteration", "next revision"),
+        ],
+        "downstream_groups": [
+            ("fine-tuning",),
+            ("in-context learning", "icl"),
+            ("domain adaptation",),
+            ("data", "examples", "labels"),
+            ("cost", "latency", "maintenance"),
+            ("trade-off", "tradeoff"),
+        ],
     },
 ]
 
 
 class StrategyOptimizationTask(BaseTask):
-    """
-    The Gödel-tier task: the agent evolves its own reasoning template.
-
-    Grading works in TWO phases:
-      Phase 1 (structural): Does the template have self-verification,
-              hallucination checks, structured stages?
-      Phase 2 (empirical):  We SIMULATE using the template on a downstream
-              challenge and grade the quality of the resulting reasoning.
-              This is the recursive self-improvement loop.
-    """
-
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("strategy_optimization", "godel")
         self.dataset = _STRATEGY_DATASET
-        self._downstream_grader = AgentGrader()
 
-    def sample(self, rng: Optional[random.Random] = None) -> TaskInstance:
-        _rng = rng or random.Random()
-        data = _rng.choice(self.dataset)
+    def sample(
+        self,
+        rng: Optional[random.Random] = None,
+        task_id: Optional[str] = None,
+    ) -> TaskInstance:
+        data = self._pick_dataset_entry(self.dataset, rng=rng, task_id=task_id)
         return TaskInstance(
             task_id=data["id"],
             difficulty=self.difficulty,
@@ -85,93 +108,85 @@ class StrategyOptimizationTask(BaseTask):
             reference=data,
         )
 
-    def _get_rubrics(self) -> Dict[str, str]:
+    def _get_rubrics(self) -> dict[str, str]:
         return {
-            "self_verification": (
-                "Does the template include explicit steps to check its own "
-                "reasoning for logical consistency and factual accuracy?"
-            ),
-            "structural_rigor": (
-                "Is the template well-structured with clear stages "
-                "(e.g., numbered steps, sections, decision gates)?"
-            ),
-            "recursive_potential": (
-                "Does the template have self-referential improvement hooks — "
-                "mechanisms that could improve the template itself in future iterations?"
-            ),
-            "downstream_quality": (
-                "When this template is mentally applied to a real reasoning challenge, "
-                "would it produce a high-quality, nuanced, accurate response?"
-            ),
+            "self_verification": "Does the strategy explicitly check its own reasoning?",
+            "structural_rigor": "Is the strategy organized into clear, reusable stages?",
+            "recursive_potential": "Does it explain how the strategy itself can improve over time?",
+            "downstream_quality": "Does the demonstration solve the downstream challenge with substance?",
+            "empirical_downstream": "Does the response actually apply the improved strategy rather than only describing it?",
         }
 
     async def grade(
-        self, task_instance: TaskInstance, solution: str
-    ) -> tuple[float, Dict[str, float], Dict[str, str]]:
-        """
-        Two-phase grading:
-          1. Structural evaluation of the template itself.
-          2. Empirical evaluation: simulate applying the template to a
-             downstream challenge and grade the simulated output.
-        """
-        # Phase 1: structural grading via parent method
-        total, scores, feedback = await super().grade(task_instance, solution)
+        self,
+        task_instance: TaskInstance,
+        solution: str,
+    ) -> tuple[float, dict[str, float], dict[str, str]]:
+        reference = task_instance.reference
+        normalized = solution.lower()
+        has_strategy_section = "## improved strategy" in normalized
+        has_demo_section = "## demonstration" in normalized
 
-        # Phase 2: empirical downstream test
-        downstream_challenge = task_instance.reference.get(
-            "downstream_challenge", ""
-        )
-        if downstream_challenge:
-            downstream_score, downstream_fb = await self._test_downstream(
-                solution, downstream_challenge
+        self_verification = keyword_groups_score(solution, reference["required_strategy_groups"])
+        structural_rigor = (
+            section_score(
+                solution,
+                [
+                    ("## improved strategy",),
+                    ("## demonstration",),
+                ],
             )
-            # Blend: 40% structural, 60% empirical (the real test)
-            scores["empirical_downstream"] = downstream_score
-            feedback["empirical_downstream"] = downstream_fb
+            + bullet_score(solution, minimum_bullets=4)
+        ) / 2
+        recursive_potential = keyword_groups_score(solution, reference["recursive_groups"])
+        downstream_quality = keyword_groups_score(solution, reference["downstream_groups"])
+        empirical_downstream = (
+            0.5 * float(has_strategy_section and has_demo_section)
+            + 0.5
+            * length_score(solution, minimum_words=120, target_words=220)
+        )
 
-            structural_avg = sum(
-                v for k, v in scores.items() if k != "empirical_downstream"
-            ) / max(1, len(scores) - 1)
-            total = 0.4 * structural_avg + 0.6 * downstream_score
+        scores = {
+            "self_verification": self_verification,
+            "structural_rigor": structural_rigor,
+            "recursive_potential": recursive_potential,
+            "downstream_quality": downstream_quality,
+            "empirical_downstream": empirical_downstream,
+        }
+        total = (
+            0.2 * self_verification
+            + 0.2 * structural_rigor
+            + 0.2 * recursive_potential
+            + 0.2 * downstream_quality
+            + 0.2 * empirical_downstream
+        )
 
-        return total, scores, feedback
-
-    async def _test_downstream(
-        self, strategy_template: str, challenge: str
-    ) -> tuple[float, str]:
-        """
-        Simulate applying the strategy template to a downstream challenge.
-        Grade the *quality of reasoning the template would produce*.
-        """
-        downstream_rubrics = {
-            "reasoning_depth": (
-                "Given this strategy template, would the resulting answer "
-                "show deep, multi-step reasoning with explicit logical connections?"
+        feedback = {
+            "self_verification": (
+                "Add explicit self-check and uncertainty steps."
+                if self_verification < 0.95
+                else "The strategy includes explicit self-verification."
             ),
-            "accuracy_potential": (
-                "Would following this template lead to a factually accurate "
-                "and well-supported answer to the challenge?"
+            "structural_rigor": (
+                "Use the required sections and clearer numbered or bulleted stages."
+                if structural_rigor < 0.95
+                else "The strategy is well structured."
             ),
-            "self_correction": (
-                "Does the template enable the agent to catch and correct its own "
-                "mistakes during reasoning?"
+            "recursive_potential": (
+                "Explain how the strategy learns from mistakes and revises itself."
+                if recursive_potential < 0.95
+                else "The strategy contains a real self-improvement loop."
+            ),
+            "downstream_quality": (
+                "Strengthen the worked example on the downstream challenge."
+                if downstream_quality < 0.95
+                else "The demonstration covers the downstream task well."
+            ),
+            "empirical_downstream": (
+                "Include both the improved strategy and a worked demonstration."
+                if empirical_downstream < 0.95
+                else "The strategy is empirically demonstrated."
             ),
         }
 
-        prompt = (
-            f"A reasoning template is being evaluated for its effectiveness.\n\n"
-            f"STRATEGY TEMPLATE BEING TESTED:\n{strategy_template}\n\n"
-            f"DOWNSTREAM CHALLENGE:\n{challenge}\n\n"
-            f"Evaluate how well this template would guide an AI to solve "
-            f"the downstream challenge."
-        )
-
-        total, scores, fb = await self._downstream_grader.grade(
-            task_prompt=prompt,
-            current_solution=strategy_template,
-            rubrics=downstream_rubrics,
-        )
-
-        # Aggregate downstream feedback
-        summary = " | ".join(f"{k}: {v}" for k, v in fb.items())
-        return total, summary
+        return await self._finalize_grade(task_instance, solution, total, scores, feedback)

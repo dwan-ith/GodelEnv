@@ -1,16 +1,13 @@
-environment_name: GodelEngine
-version: 0.3.0
+environment_name: GodelEnv
+version: 0.4.0
 description: >
-  A self-improving RL environment where an LLM agent iteratively
-  improves solutions across real-world professional tasks
-  (technical writing, code correctness, alignment reasoning, strategy synthesis).
-  Graded by an LLM-as-a-judge against multi-axis rubrics.
-  Features multi-channel rewards, anti-reward-hacking guards,
-  automatic curriculum learning, and TRL/GRPO training integration.
+  A recursive self-improvement environment where an LLM proposes StrategyPatch
+  mutations to its own reasoning policy. Patches are evaluated on episode-hidden
+  downstream task bundles, gated by a Governor, and served through a hybrid
+  LLM-first runtime with deterministic fallback.
 author: litterarum
 license: MIT
 
-# Action space
 actions:
   schema:
     type: object
@@ -18,159 +15,190 @@ actions:
     properties:
       solution:
         type: string
-        description: The agent's full replacement solution text.
+        description: Full replacement solution submitted by the agent.
       edit_type:
         type: string
         enum: [rewrite, add_reasoning, simplify, add_examples, fix_errors, restructure, synthesize, refine]
         default: rewrite
       strategy_note:
         type: string
-        description: Optional agent rationale (logged, not graded).
+        description: Optional note explaining the edit.
+      strategy_patch:
+        type: object
+        description: Optional recursive self-improvement patch evaluated on held-out downstream tasks.
+        properties:
+          improved_strategy: { type: string }
+          diff_description: { type: string }
+          hypothesis: { type: string }
+          target_weaknesses: { type: array, items: { type: string } }
 
-# Observation space
 observations:
   schema:
     type: object
     properties:
-      episode_id:       { type: string }
-      task_id:          { type: string }
-      task_type:        { type: string }
-      difficulty:       { type: string, enum: [easy, medium, hard, godel] }
-      task_prompt:      { type: string }
+      episode_id: { type: string }
+      task_id: { type: string }
+      task_type: { type: string }
+      difficulty: { type: string, enum: [easy, medium, hard, godel] }
+      task_prompt: { type: string }
       current_solution: { type: string }
-      total_score:      { type: number, minimum: 0.001, maximum: 0.999 }
+      total_score: { type: number, minimum: 0.001, maximum: 0.999 }
       rubric_scores:
         type: object
         properties:
-          scores:   { type: object, additionalProperties: { type: number } }
-          weights:  { type: object, additionalProperties: { type: number } }
+          scores: { type: object, additionalProperties: { type: number } }
+          weights: { type: object, additionalProperties: { type: number } }
           feedback: { type: object, additionalProperties: { type: string } }
-      step:                 { type: integer }
-      max_steps:            { type: integer, default: 10 }
-      improvement_history:  { type: array, items: { type: number } }
-      feedback_summary:     { type: string }
+      step: { type: integer }
+      max_steps: { type: integer, default: 10 }
+      improvement_history: { type: array, items: { type: number } }
+      feedback_summary: { type: string }
+      grading_source: { type: string }
+      grading_error: { type: string }
+      current_strategy: { type: string }
+      strategy_id: { type: string }
+      strategy_generation: { type: integer }
+      strategy_elo: { type: number }
+      recent_failures: { type: array, items: { type: string } }
+      downstream_scores: { type: object, additionalProperties: { type: number } }
+      patch_history: { type: array, items: { type: object } }
+      budget_remaining: { type: integer }
 
-# Reward function (multi-channel)
 reward:
   description: >
-    Multi-channel reward with independent components for multi-objective RL.
+    Multi-channel reward suitable for GRPO or other verifier-based RL pipelines.
   channels:
     task_score_delta:
-      description: "Score improvement from previous step"
+      description: Score improvement from previous step.
       range: [-1.0, 1.0]
     format_compliance:
-      description: "Bonus for following expected output format"
+      description: Bonus for following the expected output structure.
       range: [0.0, 0.02]
     step_cost:
-      description: "Per-step penalty to encourage efficiency"
+      description: Per-step penalty that favors shorter successful trajectories.
       value: -0.005
     anti_hack_penalty:
-      description: "Penalty from anti-reward-hacking guards"
+      description: Penalty from anti-reward-hacking guards.
       range: [-1.0, 0.0]
     process_reward:
-      description: "Step-level reasoning quality bonus"
+      description: Small bonus for structurally useful edits that improve the draft.
+      range: [0.0, 0.05]
+    patch_quality:
+      description: Reward for accepted strategy patches; penalty for rejected patches.
+      range: [-0.05, 1.0]
+    generalization_score:
+      description: Bonus from weakest held-out task-family performance.
+      range: [0.0, 0.1]
+    robustness_score:
+      description: Bonus for narrow gap between mean and weakest held-out score.
+      range: [0.0, 0.05]
+    stability_score:
+      description: Bonus for low variance across held-out task families.
       range: [0.0, 0.05]
   total: "Sum of all channels"
   termination:
-    - "success: score >= 0.95"
+    - "accepted_patch: Governor accepts a StrategyPatch into the registry"
     - "plateau: last 3 deltas all < 0.005"
     - "guard_violation: severe anti-hacking penalty (<= -0.8)"
     - "max_steps: step >= 10 (truncation)"
 
-# Anti-Reward-Hacking Guards
 guards:
   description: >
-    Multiple independent checks that detect and penalize gaming behaviour.
-    Each guard returns an independent penalty.
+    Fast deterministic checks that penalize answer-level abuse and strategy-level
+    reward hacking. Strategy patches are rejected for evaluator leakage, canary
+    violations, broad regressions, excessive variance, and padding.
   checks:
     - name: empty_solution
-      description: "Penalize empty or whitespace-only submissions"
       penalty: -0.5
     - name: length_guard
-      description: "Reject solutions >10x or <0.1x initial length"
       penalty: -0.3
     - name: repetition_guard
-      description: "Detect copy-paste spam via trigram repetition"
       penalty: -0.4
-      threshold: 0.4
     - name: forbidden_pattern
-      description: "Block os, subprocess, exec, eval, globals in code tasks"
       penalty: -0.5
       applies_to: [code_improvement, python_optimized]
     - name: regression_guard
-      description: "Flag score drops > 0.3 in one step"
       penalty: -0.2
+    - name: canary_guard
+      penalty: -0.5
+      applies_to: [strategy_patch]
+    - name: strategy_regression_gate
+      penalty: -0.3
+      applies_to: [strategy_patch]
+    - name: strategy_variance_penalty
+      penalty: -0.2
+      applies_to: [strategy_patch]
+    - name: strategy_length_guard
+      penalty: [-0.3, -0.2]
+      applies_to: [strategy_patch]
 
-# Curriculum Learning
 curriculum:
-  description: >
-    Automatic difficulty progression based on rolling success rate.
-    Escalates when success_rate > 0.6, de-escalates when < 0.2.
   difficulty_ladder: [easy, medium, hard, godel]
   window_size: 10
   escalation_threshold: 0.6
   deescalation_threshold: 0.2
   success_score_threshold: 0.7
 
-# Tasks
 tasks:
   - id: factual_qa
     difficulty: easy
-    description: "Expand a one-sentence stub into a complete, accurate scientific explanation."
-    rubrics: [coverage, detail, structure]
-
+    description: Expand a weak factual explanation into a complete answer.
   - id: alignment_qa
     difficulty: easy
-    description: "Explain complex AI alignment concepts (RLHF, HHH, reward hacking)."
-    rubrics: [technical_accuracy, clarity, completeness]
-
+    description: Explain alignment concepts with nuance and technical accuracy.
   - id: code_improvement
     difficulty: medium
-    description: "Write correct Python code that passes all unit tests."
-    rubrics: [syntax, tests, documentation]
-    grader: deterministic  # AST + exec() -- no LLM needed
-
+    description: Repair Python code so it passes isolated tests and adds documentation.
   - id: python_optimized
     difficulty: medium
-    description: "Refactor inefficient Python scripts for performance and readability."
-    rubrics: [correctness, efficiency, documentation]
-
+    description: Optimize a Python function while preserving correctness.
   - id: reasoning
     difficulty: medium
-    description: "Solve multi-step logical inference problems with explicit chain-of-thought."
-    rubrics: [logical_validity, completeness, clarity]
-
+    description: Produce a balanced trade-off analysis with an explicit recommendation.
   - id: adr_writing
     difficulty: hard
-    description: "Author a professional Architecture Decision Record from rough notes."
-    rubrics: [structure, completeness, trade_off_analysis]
-
+    description: Expand sparse architecture notes into a structured ADR.
   - id: strategy_optimization
     difficulty: godel
-    description: >
-      Recursive self-improvement: evolve a reasoning template, then
-      evaluate it empirically against a downstream challenge.
-    rubrics: [self_verification, structural_rigor, recursive_potential, downstream_quality, empirical_downstream]
-    grader: two_phase  # structural + empirical downstream test
+    description: Improve a reasoning strategy and demonstrate it on a downstream task.
 
-# Runtime
 run:
   timeout_seconds: 120
   async_supported: true
   max_steps: 10
 
-# Training
 training:
   framework: trl
   algorithm: GRPO
-  efficiency: unsloth
-  default_model: unsloth/Qwen2.5-7B-Instruct-bnb-4bit
-  reward_funcs: [task_reward_func, format_reward_func, guard_reward_func, score_reward_func]
   script: train.py
+  notebook: train_colab.ipynb
+  default_modes:
+    grading: deterministic
+    strategy_eval: deterministic
 
-# Interfaces
+inference:
+  default_mode: hybrid
+  llm_first_with_fallback: true
+  default_env_modes:
+    grading: GODEL_GRADING_MODE=auto
+    strategy_eval: GODEL_STRATEGY_EVAL_MODE=auto
+  openai_compatible:
+    enabled_by_env:
+      - OPENAI_API_KEY
+      - API_KEY
+    base_url_env: API_BASE_URL
+    model_env: MODEL_NAME
+  optional_hf_router:
+    enabled_by_env: GODEL_STRATEGY_EVAL_MODE=auto
+    base_url_env: API_BASE_URL
+    recommended_base_url: https://router.huggingface.co/v1
+    token_env: HF_TOKEN
+    model_env: MODEL_NAME
+    recommended_model: Qwen/Qwen2.5-7B-Instruct
+
 api:
-  reset:  { method: POST, path: /reset,  body: "{ task_type?, difficulty? }" }
-  step:   { method: POST, path: /step,   body: GodelAction }
-  run:    { method: POST, path: /run,    description: "Auto-runs one LLM agent step." }
-  state:  { method: GET,  path: /state,  returns: GodelState }
+  reset: { method: POST, path: /reset, body: "{ task_type?, difficulty?, task_id? }" }
+  step: { method: POST, path: /step, body: "{ action: GodelAction }" }
+  state: { method: GET, path: /state, returns: GodelState }
+  websocket: { method: WS, path: /ws, description: "Persistent session API for multi-step episodes." }
+  demo_act: { method: POST, path: /demo/act, body: "{ task_prompt, current_solution, task_type, current_strategy?, recent_failures?, downstream_scores? }" }

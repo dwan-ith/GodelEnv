@@ -1,30 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gödel Env Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
-        rel="stylesheet">
+    <title>Godel Env Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=6">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
 <body>
     <header class="kernel-header">
         <div class="logo-container">
-            <h1 class="logo">Gödel <span>Env</span></h1>
+            <h1 class="logo">Godel <span>Env</span></h1>
         </div>
         <div class="controls-container">
             <select id="task-select" class="task-dropdown">
-                <option value="factual_qa">FACTUAL Q&A</option>
+                <option value="factual_qa">FACTUAL Q&amp;A</option>
                 <option value="code_improvement">CODE FIX</option>
                 <option value="reasoning">REASONING</option>
-                <option value="alignment_qa">ALIGNMENT Q&A</option>
+                <option value="alignment_qa">ALIGNMENT Q&amp;A</option>
                 <option value="python_optimized">CODE OPTIMIZATION</option>
                 <option value="adr_writing">ADR WRITING</option>
                 <option value="strategy_optimization">META-STRATEGY</option>
@@ -38,7 +35,7 @@
         <section class="panel logs">
             <div class="panel-tag">LOGS</div>
             <div class="log-container" id="log-stream">
-                <div class="log-entry system">Initializing Gödel Env...</div>
+                <div class="log-entry system">Initializing Godel Env...</div>
                 <div class="log-entry system">Standing by for interaction.</div>
             </div>
             <div class="trajectory-mini">
@@ -49,18 +46,18 @@
         <aside class="panel status">
             <div class="panel-tag">ENGINE STATUS</div>
 
-            <div class="status-grid">
+            <div class="status-grid secondary">
                 <div class="status-item">
-                    <div class="label">SCORE</div>
-                    <div class="value accent" id="val-score">0.00</div>
+                    <div class="label">ELO</div>
+                    <div class="value" id="val-elo">1000</div>
                 </div>
                 <div class="status-item">
-                    <div class="label">DELTA</div>
-                    <div class="value" id="val-delta">+0.00</div>
+                    <div class="label">GEN</div>
+                    <div class="value" id="val-gen">0</div>
                 </div>
                 <div class="status-item">
-                    <div class="label">STEP</div>
-                    <div class="value" id="val-step">0</div>
+                    <div class="label">BUDGET</div>
+                    <div class="value" id="val-budget">0</div>
                 </div>
             </div>
 
@@ -71,14 +68,25 @@
                 </div>
             </div>
 
+            <div class="strategy-preview">
+                <div class="panel-tag sub">CURRENT REASONING STRATEGY</div>
+                <pre id="current-strategy" class="solution-text mini">Awaiting strategy...</pre>
+            </div>
+
             <div class="solution-preview">
                 <div class="panel-tag sub">CURRENT SOLUTION</div>
                 <pre id="current-solution" class="solution-text">Awaiting solution...</pre>
             </div>
+
+            <div class="failures-section">
+                <div class="panel-tag sub">RECENT FAILURES / CHALLENGES</div>
+                <div id="failure-list" class="failure-container">
+                    <div class="empty">No failures recorded.</div>
+                </div>
+            </div>
         </aside>
     </main>
 
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=6"></script>
 </body>
-
 </html>

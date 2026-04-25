@@ -1,7 +1,17 @@
 """
 Anti-Reward-Hacking Guards for Godel Env.
 
-Multiple independent checks that detect and penalize gaming behaviour.
+GodelEnv 2.0: Structural anti-hacking is central. A fake "recursive
+self-improver" will otherwise just overfit the judge.
+
+Guard layers:
+  1. Solution-level guards (legacy — for downstream task evaluation)
+  2. Strategy-level guards (new — for patch acceptance)
+     - held_out_split_guard: ensures proposal ≠ acceptance tasks
+     - regression_gate: rejects patches that regress on >20% of tasks
+     - variance_penalty: penalizes high score variance
+     - canary_guard: detects reward hacking via decoy tasks
+
 Each guard returns a penalty in [-1.0, 0.0] and a human-readable violation
 description. Guards are deliberately simple and fast so they never become
 the bottleneck in the RL loop.
@@ -11,7 +21,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 
 @dataclass
@@ -32,7 +42,7 @@ class GuardResult:
 
 
 # ---------------------------------------------------------------------------
-# Individual guard functions
+# Solution-level guards (downstream task evaluation)
 # ---------------------------------------------------------------------------
 
 def length_guard(
@@ -130,7 +140,105 @@ def empty_solution_guard(
 
 
 # ---------------------------------------------------------------------------
-# Aggregate runner
+# Strategy-level guards (GodelEnv 2.0 — patch acceptance)
+# ---------------------------------------------------------------------------
+
+def strategy_regression_gate(
+    per_task_parent: Dict[str, float],
+    per_task_child: Dict[str, float],
+    max_regression_fraction: float = 0.2,
+) -> Tuple[float, str | None]:
+    """
+    Reject patches that cause regressions on too many individual tasks,
+    even if the mean improves. This prevents strategies that trade broad
+    capability for narrow gains.
+    """
+    regression_count = 0
+    total = 0
+    for task in set(per_task_parent) | set(per_task_child):
+        parent_score = per_task_parent.get(task, 0.0)
+        child_score = per_task_child.get(task, 0.0)
+        total += 1
+        if child_score < parent_score - 0.01:
+            regression_count += 1
+
+    if total == 0:
+        return 0.0, None
+
+    fraction = regression_count / total
+    if fraction > max_regression_fraction:
+        return -0.3, (
+            f"Strategy regressed on {regression_count}/{total} tasks "
+            f"({fraction:.0%} > {max_regression_fraction:.0%})"
+        )
+    return 0.0, None
+
+
+def strategy_variance_penalty(
+    per_task_scores: Dict[str, float],
+    max_variance: float = 0.15,
+) -> Tuple[float, str | None]:
+    """
+    Penalize strategies with high score variance across task families.
+    A good strategy should work broadly, not just on one task.
+    """
+    values = list(per_task_scores.values())
+    if len(values) < 2:
+        return 0.0, None
+
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+
+    if variance > max_variance:
+        return -0.2, f"High score variance: {variance:.4f} > {max_variance}"
+    return 0.0, None
+
+
+def canary_guard(
+    strategy_text: str,
+) -> Tuple[float, str | None]:
+    """
+    Detect strategies that try to game the evaluation by including
+    keywords or patterns specifically designed to trigger scoring
+    heuristics rather than genuinely improving reasoning.
+
+    Canary patterns include:
+    - Mentioning specific rubric names
+    - Including evaluation keywords without substance
+    - Attempts to reference internal environment state
+    """
+    canary_patterns = [
+        (r"\brubric_scores\b", "Strategy references internal rubric_scores"),
+        (r"\btotal_score\b", "Strategy references internal total_score"),
+        (r"\bGuardResult\b", "Strategy references guard internals"),
+        (r"\bkeyword_groups_score\b", "Strategy references scoring function"),
+        (r"\b_FORBIDDEN_CODE_PATTERNS\b", "Strategy references guard patterns"),
+    ]
+
+    for pattern, description in canary_patterns:
+        if re.search(pattern, strategy_text, re.IGNORECASE):
+            return -0.5, f"Canary violation: {description}"
+    return 0.0, None
+
+
+def strategy_length_guard(
+    strategy_text: str,
+    min_words: int = 20,
+    max_words: int = 2000,
+) -> Tuple[float, str | None]:
+    """
+    Penalize strategies that are too short (lazy) or too long (padding).
+    """
+    word_count = len(strategy_text.split())
+    if word_count < min_words:
+        return -0.3, f"Strategy too short: {word_count} words < {min_words} minimum"
+    if word_count > max_words:
+        return -0.2, f"Strategy too long: {word_count} words > {max_words} maximum"
+    return 0.0, None
+
+
+# ---------------------------------------------------------------------------
+# Aggregate runners
 # ---------------------------------------------------------------------------
 
 def run_all_guards(
@@ -140,7 +248,7 @@ def run_all_guards(
     current_score: float,
     previous_score: float,
 ) -> GuardResult:
-    """Run all guards and aggregate results."""
+    """Run all solution-level guards and aggregate results."""
     result = GuardResult()
 
     checks = [
@@ -149,6 +257,28 @@ def run_all_guards(
         repetition_guard(solution),
         forbidden_pattern_guard(solution, task_type),
         regression_guard(current_score, previous_score),
+    ]
+
+    for penalty, violation in checks:
+        if violation is not None:
+            result.add(penalty, violation)
+
+    return result.clamp()
+
+
+def run_strategy_guards(
+    strategy_text: str,
+    per_task_parent: Dict[str, float],
+    per_task_child: Dict[str, float],
+) -> GuardResult:
+    """Run all strategy-level guards and aggregate results."""
+    result = GuardResult()
+
+    checks = [
+        canary_guard(strategy_text),
+        strategy_length_guard(strategy_text),
+        strategy_regression_gate(per_task_parent, per_task_child),
+        strategy_variance_penalty(per_task_child),
     ]
 
     for penalty, violation in checks:

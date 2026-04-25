@@ -1,54 +1,69 @@
 """
-Godel Env -- Core OpenEnv-compatible Environment.
-Lives in the godel_engine package so it can be used standalone
-without a web server. The FastAPI server imports this as a library.
+Core Gödel Env 2.0 Environment.
+
+The fundamental loop is now recursive self-improvement:
+  1. Agent observes current strategy + downstream performance + failures + budget
+  2. Agent proposes a StrategyPatch (mutation to its reasoning policy)
+  3. Environment evaluates parent vs child on held-out task bundles
+  4. Governor accepts/rejects based on multi-objective utility
+  5. Registry records lineage, Elo updates, accepted/rejected patches
+
+The existing task families (factual_qa, code_improvement, reasoning, etc.)
+become the **evaluation substrate** — they are the downstream problems used
+to judge whether a strategy mutation actually improved capability.
+
+Legacy mode: if the agent submits a plain GodelAction without a strategy_patch,
+the environment falls back to direct answer-improvement mode for backward
+compatibility with existing training infrastructure.
 """
 from __future__ import annotations
+
+import logging
 import random
 import uuid
-import logging
-from typing import Any, Optional, Dict
+from typing import Dict, List, Optional
 
+from godel_engine.curriculum import CurriculumController, DIFFICULTY_LADDER
+from godel_engine.evolution import (
+    DEFAULT_STRATEGY_TEXT,
+    Governor,
+    GovernorConfig,
+    HuxleyTracker,
+    Strategy,
+    StrategyRegistry,
+)
+from godel_engine.guards import run_all_guards, run_strategy_guards
 from godel_engine.models import (
+    EditType,
     GodelAction,
     GodelObservation,
+    GodelState,
     GodelStepResult,
+    PatchDecision,
     RewardBreakdown,
     RubricScores,
-    GodelState,
+    StrategyPatch,
 )
-from godel_engine.evolution import DarwinPool, HuxleyTracker, Strategy
-from godel_engine.guards import run_all_guards
-from godel_engine.curriculum import CurriculumController, DIFFICULTY_LADDER
-from godel_engine.tasks.alignment_qa import AlignmentQATask
-from godel_engine.tasks.python_optimized import PythonOptimizedTask
+from godel_engine.strategy_evaluator import StrategyEvaluator
 from godel_engine.tasks.adr_writing import ADRWritingTask
-from godel_engine.tasks.strategy_optimization import StrategyOptimizationTask
-from godel_engine.tasks.factual_qa import FactualQATask
+from godel_engine.tasks.alignment_qa import AlignmentQATask
 from godel_engine.tasks.code_improvement import CodeImprovementTask
+from godel_engine.tasks.factual_qa import FactualQATask
+from godel_engine.tasks.python_optimized import PythonOptimizedTask
 from godel_engine.tasks.reasoning import ReasoningTask
+from godel_engine.tasks.strategy_optimization import StrategyOptimizationTask
+
 
 logger = logging.getLogger("godel_env.environment")
 
 
 class GodelEnvironment:
     """
-    OpenEnv-compatible environment for Godel Env.
-    Implements reset() / step() / state() and can be used directly
-    in Python without any web server.
+    OpenEnv-style environment for recursive strategy self-improvement.
 
-    Features:
-      - 7 task types across 4 difficulty levels
-      - Multi-channel reward breakdown (task, format, guards, process)
-      - Anti-reward-hacking guards (length, repetition, forbidden patterns)
-      - Automatic curriculum learning (escalation / de-escalation)
-      - Explicit termination reasons
-
-    Usage:
-        env = GodelEnvironment()
-        result = await env.reset(task_type="factual_qa")
-        result = await env.step(GodelAction(solution="..."))
-        state = env.state()
+    The agent's job is to propose StrategyPatch mutations that improve
+    downstream performance as measured by the held-out evaluator and
+    accepted by the Governor.
     """
 
     TASKS = {
@@ -61,7 +76,6 @@ class GodelEnvironment:
         "strategy_optimization": StrategyOptimizationTask,
     }
 
-    # Map difficulty labels to task names
     TASKS_BY_DIFFICULTY = {
         "easy": ["factual_qa", "alignment_qa"],
         "medium": ["code_improvement", "python_optimized", "reasoning"],
@@ -69,34 +83,44 @@ class GodelEnvironment:
         "godel": ["strategy_optimization"],
     }
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None) -> None:
         self.rng = random.Random(seed)
-        # Instantiate all tasks once -- expensive graders are shared
         self.tasks = {name: cls() for name, cls in self.TASKS.items()}
-        self.pool = DarwinPool(rng=self.rng)
+        self.registry = StrategyRegistry(rng=self.rng)
         self.huxley = HuxleyTracker()
+        self.governor = Governor()
         self.curriculum = CurriculumController()
+        self.strategy_evaluator = StrategyEvaluator(seed=seed or 42)
 
-        # Episode state -- reset on every reset()
+        # Legacy aliases for backward compat
+        self.pool = self.registry
+
+        # Episode state
         self.current_task = None
         self.current_instance = None
-        self.current_solution: str = ""
-        self.current_score: float = 0.0
-        self.episode_id: str = ""
-        self.step_count: int = 0
-        self.max_steps: int = 10
+        self.current_solution = ""
+        self.current_score = 0.0
+        self.initial_score = 0.0
+        self.initial_solution = ""
+        self.episode_id = ""
+        self.step_count = 0
+        self.max_steps = 10
         self.improvement_history: list[float] = []
-        self.initial_score: float = 0.0
-        self.initial_solution: str = ""
-        self.current_strategy = None
-        self.episode_difficulty: str = ""
+        self.reward_history: list[float] = []
+        self.current_strategy: Optional[Strategy] = None
+        self.episode_difficulty = ""
 
-    # -- Public OpenEnv API ---------------------------------------------------
+        # GodelEnv 2.0 state
+        self.patches_proposed = 0
+        self.patches_accepted = 0
+        self.patches_rejected = 0
+        self.patch_history: list[dict] = []
 
     async def reset(
         self,
         task_type: Optional[str] = None,
         difficulty: Optional[str] = None,
+        task_id: Optional[str] = None,
         seed: Optional[int] = None,
     ) -> GodelStepResult:
         """Initialize a new episode and return the first observation."""
@@ -106,47 +130,56 @@ class GodelEnvironment:
         self.episode_id = str(uuid.uuid4())[:8]
         self.step_count = 0
         self.improvement_history = []
+        self.reward_history = []
+        self.patches_proposed = 0
+        self.patches_accepted = 0
+        self.patches_rejected = 0
+        self.patch_history = []
 
-        # Determine difficulty (curriculum auto or manual override)
-        if difficulty and difficulty in DIFFICULTY_LADDER:
-            chosen_difficulty = difficulty
+        chosen_task = self.tasks.get(task_type) if task_type else None
+        if chosen_task is not None:
+            self.current_task = chosen_task
+            chosen_difficulty = (
+                difficulty if difficulty in DIFFICULTY_LADDER else chosen_task.difficulty
+            )
         else:
-            chosen_difficulty = self.curriculum.suggest_difficulty()
-        self.episode_difficulty = chosen_difficulty
-
-        # Select task
-        if task_type and task_type in self.tasks:
-            self.current_task = self.tasks[task_type]
-        else:
-            # Pick a random task matching the chosen difficulty
-            eligible = self.TASKS_BY_DIFFICULTY.get(chosen_difficulty, list(self.tasks.keys()))
+            chosen_difficulty = (
+                difficulty
+                if difficulty in DIFFICULTY_LADDER
+                else self.curriculum.suggest_difficulty()
+            )
+            eligible = self.TASKS_BY_DIFFICULTY.get(
+                chosen_difficulty, list(self.tasks.keys())
+            )
             chosen_name = self.rng.choice(eligible)
             self.current_task = self.tasks[chosen_name]
 
-        self.current_instance = self.current_task.sample(self.rng)
+        self.episode_difficulty = chosen_difficulty
+        self.current_instance = self.current_task.sample(self.rng, task_id=task_id)
         self.current_solution = self.current_instance.initial_solution
         self.initial_solution = self.current_instance.initial_solution
-        self.current_strategy = self.pool.select()
 
-        # Grade initial (baseline) solution -- fallback gracefully if LLM unavailable
+        # Select a strategy from the registry
+        self.current_strategy = self.registry.select()
+
         try:
-            score, rubrics, fb = await self.current_task.grade(
+            score, rubrics, feedback = await self.current_task.grade(
                 self.current_instance, self.current_solution
             )
-        except Exception:
+        except Exception as exc:
+            logger.exception("Initial grading failed for %s", self.current_task.name)
+            self.current_task.last_grading_source = "deterministic"
+            self.current_task.last_grading_error = f"initial grading exception: {type(exc).__name__}"
             score = 0.0
-            rubrics = {k: 0.0 for k in self.current_task._get_rubrics()}
-            fb = {k: "Baseline grading deferred." for k in rubrics}
+            rubrics = {name: 0.0 for name in self.current_task._get_rubrics()}
+            feedback = {name: f"Initial grading error: {type(exc).__name__}" for name in rubrics}
 
-        # Ensure scores are strictly between 0 and 1 for OpenEnv validation
-        score = self._clamp(score)
-        rubrics = {k: self._clamp(v) for k, v in rubrics.items()}
-
-        self.current_score = score
-        self.initial_score = score
+        self.current_score = self._clamp(score)
+        self.initial_score = self.current_score
+        rubrics = {name: self._clamp(value) for name, value in rubrics.items()}
 
         return GodelStepResult(
-            observation=self._build_obs(rubrics, fb),
+            observation=self._build_obs(rubrics, feedback),
             reward=0.0,
             reward_breakdown=RewardBreakdown(),
             terminated=False,
@@ -154,43 +187,230 @@ class GodelEnvironment:
             info={
                 "msg": "reset",
                 "episode_id": self.episode_id,
+                "task_type": self.current_task.name,
+                "task_id": self.current_instance.task_id,
                 "difficulty": self.episode_difficulty,
+                "grading_source": getattr(
+                    self.current_task, "last_grading_source", "deterministic"
+                ),
+                "grading_error": getattr(self.current_task, "last_grading_error", None),
                 "curriculum": self.curriculum.get_stats(),
+                "registry": self.registry.get_stats(),
             },
         )
 
     async def step(self, action: GodelAction) -> GodelStepResult:
-        """Submit an agent action and receive the graded result."""
-        if self.current_task is None:
-            raise RuntimeError(
-                "Environment not initialized. Call reset() before step()."
-            )
+        """
+        Submit an action and receive a graded result.
+
+        GodelEnv 2.0 dual-mode:
+        - If action.strategy_patch is provided, this is a strategy-level step:
+          the environment evaluates parent vs child on downstream tasks.
+        - Otherwise, this is a legacy answer-improvement step.
+        """
+        if self.current_task is None or self.current_instance is None:
+            raise RuntimeError("Call reset() before step().")
 
         self.step_count += 1
+
+        # ── Strategy-level step (GodelEnv 2.0 primary mode) ──
+        if action.strategy_patch is not None:
+            return await self._strategy_step(action)
+
+        # ── Legacy answer-improvement step ──
+        return await self._answer_step(action)
+
+    async def _strategy_step(self, action: GodelAction) -> GodelStepResult:
+        """
+        Process a strategy patch proposal.
+
+        1. Create a child strategy from the patch
+        2. Evaluate both parent and child on downstream tasks
+        3. Run strategy-level anti-hacking guards
+        4. Governor decides accept/reject
+        5. Update registry, Elo, lineage
+        """
+        patch = action.strategy_patch
+        self.patches_proposed += 1
+
+        # Create child strategy
+        child = Strategy(
+            id=f"strat_{uuid.uuid4().hex[:6]}",
+            policy_text=patch.improved_strategy,
+            parent_id=self.current_strategy.id,
+            generation=self.current_strategy.generation + 1,
+            fitness=self.current_strategy.fitness,
+            history=self.current_strategy.history.copy(),
+            patch_description=patch.diff_description,
+            patch_hypothesis=patch.hypothesis,
+        )
+
+        # Evaluate parent and child on held-out tasks
+        parent_scores, parent_per_task = await self._evaluate_strategy_downstream(
+            self.current_strategy
+        )
+        child_scores, child_per_task = await self._evaluate_strategy_downstream(child)
+
+        # Run strategy-level guards
+        guard_result = run_strategy_guards(
+            patch.improved_strategy,
+            parent_per_task,
+            child_per_task,
+        )
+
+        # Governor decision
+        if guard_result.passed:
+            decision = self.governor.decide(
+                parent_scores, child_scores,
+                parent_per_task, child_per_task,
+            )
+        else:
+            decision = {
+                "accepted": False,
+                "parent_utility": self.governor.compute_utility(parent_scores),
+                "child_utility": self.governor.compute_utility(child_scores),
+                "improvement": 0.0,
+                "rejection_reasons": guard_result.violations,
+                "regression_count": 0,
+                "tasks_evaluated": len(child_per_task),
+            }
+
+        patch_decision = PatchDecision(
+            accepted=decision["accepted"],
+            parent_utility=decision["parent_utility"],
+            child_utility=decision["child_utility"],
+            improvement=decision.get("improvement", 0.0),
+            axis_scores=child_scores,
+            rejection_reasons=decision.get("rejection_reasons", []),
+            tasks_evaluated=decision.get("tasks_evaluated", 0),
+            regression_count=decision.get("regression_count", 0),
+        )
+
+        # Apply decision
+        if decision["accepted"]:
+            self.patches_accepted += 1
+            self.registry.add_strategy(child)
+            self.huxley.record_lineage(self.current_strategy.id, child.id)
+            self.registry.update_elo(child.id, self.current_strategy.id)
+            self.current_strategy = child
+            patch_reward = 0.1 + decision.get("improvement", 0.0) * 0.5
+        else:
+            self.patches_rejected += 1
+            self.registry.record_rejected_patch(self.current_strategy.id, decision)
+            self.registry.update_elo(self.current_strategy.id, child.id)
+            patch_reward = -0.05
+
+        self.registry.compute_cmp()
+
+        # Record patch in history
+        self.patch_history.append({
+            "step": self.step_count,
+            "accepted": decision["accepted"],
+            "improvement": decision.get("improvement", 0.0),
+            "reasons": decision.get("rejection_reasons", []),
+        })
+
+        # Compute reward
+        child_utility = decision.get("child_utility", 0.0)
+        parent_utility = decision.get("parent_utility", 0.0)
+        delta = child_utility - parent_utility
+        self.improvement_history.append(delta)
+
+        breakdown = RewardBreakdown(
+            task_score_delta=delta,
+            format_compliance=0.01 if len(patch.improved_strategy) > 50 else 0.0,
+            step_cost=-0.005,
+            anti_hack_penalty=guard_result.penalty,
+            patch_quality=patch_reward,
+            generalization_score=child_scores.get("generalization", 0.0) * 0.1,
+            robustness_score=child_scores.get("robustness", 0.0) * 0.05,
+            stability_score=child_scores.get("stability", 0.0) * 0.05,
+        )
+        reward = breakdown.compute_total()
+        self.reward_history.append(reward)
+        self.current_score = self._clamp(child_utility)
+
+        # Termination logic
+        plateau = (
+            self.step_count >= 3
+            and all(abs(d) < 0.005 for d in self.improvement_history[-3:])
+        )
+        budget_exhausted = self.step_count >= self.max_steps
+        terminated = plateau
+        truncated = budget_exhausted
+
+        if terminated or truncated:
+            self.current_strategy.record_performance(self.current_score)
+            self.curriculum.record_outcome(self.episode_difficulty, self.current_score)
+
+        reason = "plateau" if plateau else ("max_steps" if truncated else "running")
+
+        # Build observation with strategy context
+        rubrics = child_per_task
+        feedback = {
+            task: f"Score: {score:.3f}" for task, score in child_per_task.items()
+        }
+
+        return GodelStepResult(
+            observation=self._build_obs(rubrics, feedback),
+            reward=reward,
+            reward_breakdown=breakdown,
+            terminated=terminated,
+            truncated=truncated,
+            patch_decision=patch_decision,
+            info={
+                "delta": delta,
+                "step": self.step_count,
+                "action_type": action.edit_type,
+                "strategy_note": action.strategy_note,
+                "reason": reason,
+                "guard_violations": guard_result.violations,
+                "guard_penalty": guard_result.penalty,
+                "difficulty": self.episode_difficulty,
+                "task_type": self.current_task.name,
+                "task_id": self.current_instance.task_id,
+                "patch_accepted": decision["accepted"],
+                "patch_improvement": decision.get("improvement", 0.0),
+                "patches_proposed": self.patches_proposed,
+                "patches_accepted": self.patches_accepted,
+                "patches_rejected": self.patches_rejected,
+                "strategy_id": self.current_strategy.id,
+                "strategy_elo": self.current_strategy.elo,
+                "strategy_generation": self.current_strategy.generation,
+                "registry_stats": self.registry.get_stats(),
+                "strategy_eval_mode": self.strategy_evaluator.mode,
+            },
+        )
+
+    async def _answer_step(self, action: GodelAction) -> GodelStepResult:
+        """Legacy answer-improvement step for backward compatibility."""
         previous_score = self.current_score
         self.current_solution = action.solution
 
-        # Grade new solution
         try:
-            score, rubrics, fb = await self.current_task.grade(
+            score, rubrics, feedback = await self.current_task.grade(
                 self.current_instance, self.current_solution
             )
-        except Exception as e:
-            logger.warning(f"Grading failed at step {self.step_count}: {e}")
+        except Exception as exc:
+            logger.exception("Grading failed for %s", self.current_task.name)
+            self.current_task.last_grading_source = "deterministic"
+            self.current_task.last_grading_error = f"step grading exception: {type(exc).__name__}"
             score = previous_score
-            rubrics = {k: self._clamp(previous_score) for k in self.current_task._get_rubrics()}
-            fb = {k: f"Grading error: {type(e).__name__}" for k in rubrics}
+            rubrics = {
+                name: previous_score for name in self.current_task._get_rubrics()
+            }
+            feedback = {
+                name: f"Step grading error: {type(exc).__name__}"
+                for name in rubrics
+            }
 
-        # Clamp scores to open interval (0, 1)
         score = self._clamp(score)
-        rubrics = {k: self._clamp(v) for k, v in rubrics.items()}
+        rubrics = {name: self._clamp(value) for name, value in rubrics.items()}
         self.current_score = score
 
-        # -- Multi-channel reward computation ---------------------------------
         delta = score - previous_score
         self.improvement_history.append(delta)
 
-        # Run anti-reward-hacking guards
         guard_result = run_all_guards(
             solution=action.solution,
             initial_solution=self.initial_solution,
@@ -198,34 +418,30 @@ class GodelEnvironment:
             current_score=score,
             previous_score=previous_score,
         )
-
-        # Format compliance check
         format_score = self._check_format_compliance(action, self.current_task.name)
+        process_reward = self._compute_process_reward(action, delta, format_score, guard_result.penalty)
 
-        # Build reward breakdown
         breakdown = RewardBreakdown(
             task_score_delta=delta,
             format_compliance=format_score,
-            length_penalty=0.0,  # Captured inside guard penalty
+            length_penalty=0.0,
             step_cost=-0.005,
             anti_hack_penalty=guard_result.penalty,
-            process_reward=0.0,  # Populated by process supervision if enabled
+            process_reward=process_reward,
         )
-        breakdown.compute_total()
-        reward = breakdown.total
+        reward = breakdown.compute_total()
+        self.reward_history.append(reward)
 
-        # -- Termination logic ------------------------------------------------
         plateau = (
             self.step_count >= 3
-            and all(abs(d) < 0.005 for d in self.improvement_history[-3:])
+            and all(abs(change) < 0.005 for change in self.improvement_history[-3:])
         )
         success = score >= 0.95
-        guard_halt = guard_result.penalty <= -0.8  # Severe violation
+        guard_halt = guard_result.penalty <= -0.8
 
         terminated = plateau or success or guard_halt
         truncated = self.step_count >= self.max_steps
 
-        # Determine reason
         if guard_halt:
             reason = f"guard_violation: {'; '.join(guard_result.violations)}"
         elif success:
@@ -237,24 +453,24 @@ class GodelEnvironment:
         else:
             reason = "running"
 
-        # Strategy evolution bookkeeping
         if terminated or truncated:
-            self.current_strategy.record_performance(score)
+            self.current_strategy.record_performance(score, self.current_task.name)
             if score > self.initial_score + 0.05:
                 child = Strategy(
                     id=f"strat_{uuid.uuid4().hex[:6]}",
+                    policy_text=self.current_strategy.policy_text,
                     parent_id=self.current_strategy.id,
                     generation=self.current_strategy.generation + 1,
+                    fitness=self.current_strategy.fitness,
+                    history=self.current_strategy.history.copy(),
                 )
-                self.pool.add_strategy(child)
+                self.registry.add_strategy(child)
                 self.huxley.record_lineage(self.current_strategy.id, child.id)
-            self.huxley.compute_cmp(self.pool)
-
-            # Record outcome for curriculum
+            self.registry.compute_cmp()
             self.curriculum.record_outcome(self.episode_difficulty, score)
 
         return GodelStepResult(
-            observation=self._build_obs(rubrics, fb),
+            observation=self._build_obs(rubrics, feedback),
             reward=reward,
             reward_breakdown=breakdown,
             terminated=terminated,
@@ -268,15 +484,49 @@ class GodelEnvironment:
                 "guard_violations": guard_result.violations,
                 "guard_penalty": guard_result.penalty,
                 "difficulty": self.episode_difficulty,
+                "task_type": self.current_task.name,
+                "task_id": self.current_instance.task_id,
+                "grading_source": getattr(
+                    self.current_task, "last_grading_source", "deterministic"
+                ),
+                "grading_error": getattr(self.current_task, "last_grading_error", None),
             },
         )
 
+    async def _evaluate_strategy_downstream(
+        self,
+        strategy: Strategy,
+    ) -> tuple[Dict[str, float], Dict[str, float]]:
+        """
+        Evaluate a strategy on held-out downstream tasks.
+
+        Returns:
+            (axis_scores, per_task_scores)
+        """
+        axis_scores, per_case_scores, diagnostics = await self.strategy_evaluator.evaluate(
+            self.tasks,
+            strategy.policy_text,
+            episode_id=self.episode_id,
+            current_task_id=self.current_instance.task_id if self.current_instance else "",
+        )
+
+        for key, score in per_case_scores.items():
+            strategy.record_performance(score, key)
+            if score < 0.45:
+                strategy.record_failure(
+                    f"{key} remains weak under strategy {strategy.id} (score {score:.3f})"
+                )
+        strategy.metadata["last_eval"] = diagnostics
+        return axis_scores, per_case_scores
+
     def state(self) -> GodelState:
-        """Return episode-level metadata without advancing the episode."""
-        score_trajectory = [self.initial_score] + [
-            self.initial_score + sum(self.improvement_history[: i + 1])
-            for i in range(len(self.improvement_history))
-        ]
+        """Return the current episode state."""
+        score_trajectory = [self.initial_score]
+        running = self.initial_score
+        for change in self.improvement_history:
+            running += change
+            score_trajectory.append(running)
+
         return GodelState(
             episode_id=self.episode_id,
             step_count=self.step_count,
@@ -284,55 +534,80 @@ class GodelEnvironment:
             best_score=max(score_trajectory) if score_trajectory else self.initial_score,
             initial_score=self.initial_score,
             total_cost=self.step_count * 0.005,
-            cumulative_reward=sum(self.improvement_history) - self.step_count * 0.005,
-            improvement_trajectory=self.improvement_history,
+            cumulative_reward=sum(self.reward_history),
+            improvement_trajectory=list(self.improvement_history),
+            patches_proposed=self.patches_proposed,
+            patches_accepted=self.patches_accepted,
+            patches_rejected=self.patches_rejected,
+            strategy_lineage=self.registry.get_lineage_chain(self.current_strategy.id) if self.current_strategy else [],
+            current_strategy_elo=self.current_strategy.elo if self.current_strategy else 1000.0,
         )
 
-    # -- Internal helpers -----------------------------------------------------
-
     @staticmethod
-    def _clamp(value: float, lo: float = 0.001, hi: float = 0.999) -> float:
-        """Clamp a score to the open interval (0, 1) for OpenEnv validation."""
-        return max(lo, min(hi, float(value)))
+    def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+        return max(low, min(high, float(value)))
 
     def _check_format_compliance(self, action: GodelAction, task_type: str) -> float:
-        """
-        Check whether the agent's output follows expected formatting.
-        Returns a small bonus [0.0, 0.02] for compliance, 0 otherwise.
-        """
         solution = action.solution
 
-        if task_type in ("code_improvement", "python_optimized"):
-            # Code tasks: solution should contain a function definition
-            if "def " in solution:
-                return 0.02
-            return 0.0
+        if task_type in {"code_improvement", "python_optimized"}:
+            return 0.02 if "def " in solution else 0.0
 
         if task_type == "adr_writing":
-            # ADR tasks: should have section headers
-            headers = ["# ", "## ", "Context", "Decision", "Consequences"]
-            matches = sum(1 for h in headers if h.lower() in solution.lower())
-            return 0.02 if matches >= 2 else 0.0
+            headers = ["status", "context", "decision", "consequences", "alternatives"]
+            matches = sum(1 for header in headers if header in solution.lower())
+            return 0.02 if matches >= 4 else 0.01 if matches >= 2 else 0.0
 
         if task_type == "strategy_optimization":
-            # Strategy tasks: should have numbered steps
-            if any(f"{i}." in solution for i in range(1, 6)):
-                return 0.02
+            has_sections = (
+                "## improved strategy" in solution.lower()
+                and "## demonstration" in solution.lower()
+            )
+            return 0.02 if has_sections else 0.0
+
+        return 0.01 if len(solution.strip()) > 50 else 0.0
+
+    def _compute_process_reward(
+        self,
+        action: GodelAction,
+        delta: float,
+        format_score: float,
+        guard_penalty: float,
+    ) -> float:
+        if guard_penalty < 0:
             return 0.0
 
-        # Default: any non-empty, reasonably structured answer
-        if len(solution.strip()) > 50:
-            return 0.01
-        return 0.0
+        edit_bonus = {
+            EditType.ADD_REASONING: 0.01,
+            EditType.FIX_ERRORS: 0.015,
+            EditType.RESTRUCTURE: 0.01,
+            EditType.SYNTHESIZE: 0.015,
+            EditType.REFINE: 0.005,
+        }.get(action.edit_type, 0.0)
 
-    def _build_obs(self, rubrics: Dict, feedback: Dict) -> GodelObservation:
-        weights = {k: 1.0 / len(rubrics) for k in rubrics} if rubrics else {}
+        process = max(0.0, delta) * 0.3 + format_score * 0.5 + edit_bonus
+        return min(0.05, process)
+
+    def _build_obs(self, rubrics: Dict[str, float], feedback: Dict[str, str]) -> GodelObservation:
+        weights = {name: 1.0 / len(rubrics) for name in rubrics} if rubrics else {}
+        feedback_summary = " | ".join(
+            f"{name}: {text}" for name, text in feedback.items()
+        )
+
+        # Strategy context for GodelEnv 2.0
+        strategy_text = self.current_strategy.policy_text if self.current_strategy else ""
+        strategy_id = self.current_strategy.id if self.current_strategy else ""
+        strategy_gen = self.current_strategy.generation if self.current_strategy else 0
+        strategy_elo = self.current_strategy.elo if self.current_strategy else 1000.0
+        recent_failures = self.current_strategy.failure_cases[-5:] if self.current_strategy else []
+        downstream = self.current_strategy.get_downstream_summary() if self.current_strategy else {}
+
         return GodelObservation(
             episode_id=self.episode_id,
-            task_id=self.current_instance.task_id,
-            task_type=self.current_task.name,
-            difficulty=self.current_task.difficulty,
-            task_prompt=self.current_instance.prompt,
+            task_id=self.current_instance.task_id if self.current_instance else "",
+            task_type=self.current_task.name if self.current_task else "",
+            difficulty=self.episode_difficulty,
+            task_prompt=self.current_instance.prompt if self.current_instance else "",
             current_solution=self.current_solution,
             total_score=self.current_score,
             rubric_scores=RubricScores(
@@ -343,5 +618,14 @@ class GodelEnvironment:
             step=self.step_count,
             max_steps=self.max_steps,
             improvement_history=list(self.improvement_history),
-            feedback_summary=" | ".join(str(v) for v in feedback.values()),
+            feedback_summary=feedback_summary,
+            # GodelEnv 2.0 fields
+            current_strategy=strategy_text,
+            strategy_id=strategy_id,
+            strategy_generation=strategy_gen,
+            strategy_elo=strategy_elo,
+            recent_failures=recent_failures,
+            downstream_scores=downstream,
+            patch_history=self.patch_history[-5:],
+            budget_remaining=self.max_steps - self.step_count,
         )

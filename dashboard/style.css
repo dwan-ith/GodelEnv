@@ -212,10 +212,49 @@ body {
     overflow-y: auto;
     white-space: pre-wrap;
     margin-top: 0.5rem;
+    min-height: 100px;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #333; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent-color); }
+.solution-text.mini {
+    min-height: 60px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.status-grid.secondary {
+    margin-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+}
+
+.status-grid.secondary .value {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+}
+
+.failure-container {
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 0.75rem;
+    color: #ff3e3e;
+    margin-top: 0.5rem;
+}
+
+.failure-item {
+    margin-bottom: 0.3rem;
+    padding-left: 1rem;
+    position: relative;
+}
+
+.failure-item::before {
+    content: "!";
+    position: absolute;
+    left: 0;
+    color: #ff3e3e;
+}
+
+.empty {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-style: italic;
+}

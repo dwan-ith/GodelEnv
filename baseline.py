@@ -68,7 +68,7 @@ def print_banner(text: str, width: int = 60):
 def print_step(step: int, score: float, reward: float, note: str):
     bar_len = 30
     filled = int(score * bar_len)
-    bar = "#" * filled + "-" * (bar_len - filled)
+    bar = "█" * filled + "░" * (bar_len - filled)
     print(f"  step {step:02d} | [{bar}] {score:.3f} | reward={reward:+.4f} | {note[:50]}")
 
 
@@ -97,8 +97,11 @@ async def run_episode(
         action = await agent.act(
             task_prompt=obs.task_prompt,
             current_solution=obs.current_solution,
-            rubrics=obs.rubric_scores.scores or env.current_task._get_rubrics(),
+            rubrics=env.current_task._get_rubrics(),
             task_type=task_type,
+            strategy_text=obs.current_strategy,
+            recent_failures=obs.recent_failures,
+            downstream_scores=obs.downstream_scores,
         )
         result = await env.step(action)
         obs = result.observation
@@ -155,7 +158,7 @@ async def run_baseline(
 
     for ep_idx in range(episodes):
         task = tasks[ep_idx % len(tasks)]
-        print(f"\n── Episode {ep_idx + 1}/{episodes} | {task} ──")
+        print(f"\n—— Episode {ep_idx + 1}/{episodes} | {task} ——")
         try:
             metrics = await run_episode(env, agent, task, ep_idx + 1, seed)
             all_results.append(metrics)

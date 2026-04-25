@@ -10,8 +10,18 @@ WORKDIR /app
 # Copy only dependency manifests first (maximises cache hit on rebuilds)
 COPY pyproject.toml uv.lock ./
 
-# Install all dependencies from the lockfile — reproducible and fast
-RUN uv sync --frozen --no-dev --no-install-project
+# Install runtime dependencies into the system Python (no venv).
+# `pyproject.toml` is not a requirements file; install the explicit server deps
+# here, then install the local package after the source has been copied.
+RUN uv pip install --system \
+    "openenv-core>=0.2.0" \
+    "pydantic>=2.0" \
+    "httpx>=0.20.0" \
+    "openai>=1.0.0" \
+    "python-dotenv>=1.0.1" \
+    "fastapi>=0.111.0" \
+    "uvicorn[standard]>=0.30.0" \
+    "websockets>=12.0"
 
 # Copy application code
 COPY godel_engine/ ./godel_engine/
@@ -19,14 +29,12 @@ COPY server/ ./server/
 COPY dashboard/ ./dashboard/
 COPY inference.py baseline.py ./
 
-# Install the local package itself (no-deps since uv sync already got them)
+# Install the local package itself
 RUN uv pip install --system --no-deps -e .
 
 # Fix ownership for HF non-root user
 RUN chown -R user:user /app
 USER user
-
-ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 7860
 

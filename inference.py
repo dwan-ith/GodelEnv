@@ -4,13 +4,10 @@ Inference Script Example for GodelEnv
 Strictly complies with the Hackathon Output formatting.
 """
 
+import asyncio
 import os
 import sys
-import asyncio
-import json
-from typing import List
 
-from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 from godel_engine.environment import GodelEnvironment
@@ -23,9 +20,7 @@ load_dotenv(override=False)
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Meta-Llama-3-8B-Instruct")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 
 def format_action(action: GodelAction) -> str:
     # Safely format the action string without newlines
@@ -54,24 +49,35 @@ async def run_inference():
             terminated = False
             truncated = False
             rewards = []
+            last_step_result = result
             
             while not (terminated or truncated):
                 # Step the env
                 action_result = await agent.act(
                     task_prompt=obs.task_prompt,
                     current_solution=obs.current_solution,
-                    rubrics=obs.rubric_scores.scores or env.current_task._get_rubrics(),
+                    rubrics=env.current_task._get_rubrics(),
                     task_type=task_type,
+                    strategy_text=obs.current_strategy,
+                    recent_failures=obs.recent_failures,
+                    downstream_scores=obs.downstream_scores,
                 )
                 
                 try:
                     step_result = await env.step(action_result)
+                    last_step_result = step_result
                     error_msg = "null"
                 except Exception as e:
-                    step_result = result # reuse last result
-                    step_result.reward = -1.0
-                    step_result.terminated = True
+                    # Keep the last valid observation so the trace remains parseable.
+                    step_result = last_step_result
                     error_msg = str(e).replace('\n', ' ')
+                    reward_val = -1.0
+                    rewards.append(reward_val)
+                    print(
+                        f"[STEP] step={obs.step} action={format_action(action_result)} "
+                        f"reward={reward_val:.2f} done=true error={error_msg}"
+                    )
+                    break
                 
                 obs = step_result.observation
                 reward_val = step_result.reward
