@@ -1,20 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Godel Env Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <title>Gödel Env Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
+        rel="stylesheet">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <link rel="stylesheet" href="style.css?v=6">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
     <header class="kernel-header">
         <div class="logo-container">
-            <h1 class="logo">Godel <span>Env</span></h1>
+            <h1 class="logo">Gödel <span>Env</span></h1>
         </div>
         <div class="controls-container">
             <select id="task-select" class="task-dropdown">
@@ -35,7 +38,7 @@
         <section class="panel logs">
             <div class="panel-tag">LOGS</div>
             <div class="log-container" id="log-stream">
-                <div class="log-entry system">Initializing Godel Env...</div>
+                <div class="log-entry system">Initializing Gödel Env...</div>
                 <div class="log-entry system">Standing by for interaction.</div>
             </div>
             <div class="trajectory-mini">
@@ -100,14 +103,17 @@
     </main>
 
     <section class="panel meta-panel" style="margin-top: 1.5rem;">
-        <div class="panel-tag">RECURSIVE SELF-IMPROVEMENT</div>
+        <div class="panel-tag">SELF-IMPROVEMENT</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
             <div class="strategy-preview">
-                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">CURRENT REASONING STRATEGY</div>
-                <pre id="current-strategy" class="solution-text mini" style="min-height: 150px; max-height: 200px; overflow-y: auto;">Awaiting strategy...</pre>
+                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">CURRENT REASONING
+                    STRATEGY</div>
+                <pre id="current-strategy" class="solution-text mini"
+                    style="min-height: 150px; max-height: 200px; overflow-y: auto;">Awaiting strategy...</pre>
             </div>
             <div class="failures-section">
-                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">RECENT FAILURES / CHALLENGES</div>
+                <div class="panel-tag sub" style="margin-top: 0; padding-top: 0; border-top: none;">RECENT FAILURES /
+                    CHALLENGES</div>
                 <div id="failure-list" class="failure-container" style="max-height: 200px;">
                     <div class="empty">No failures recorded.</div>
                 </div>
@@ -116,4 +122,5 @@
     </section>
     <script src="app.js?v=6"></script>
 </body>
+
 </html>
