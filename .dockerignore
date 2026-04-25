@@ -27,4 +27,3 @@ godel_trained_model/
 *.safetensors
 artifacts
 pytest-cache-files-*
-uv.lock
