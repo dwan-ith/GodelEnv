@@ -121,3 +121,72 @@ async def reset_provider_status() -> dict:
         "ok": True,
         "providers": describe_provider_configs(),
     }
+
+
+@router.get("/provider-test")
+async def provider_test() -> dict:
+    """
+    Test LLM provider connectivity by making a simple API call.
+    Returns detailed diagnostics about what succeeded/failed.
+    """
+    from godel_engine.provider_runtime import load_provider_configs
+    from openai import AsyncOpenAI
+    import asyncio
+
+    results = []
+    configs = load_provider_configs()
+
+    for config in configs:
+        if not config.api_key:
+            results.append({
+                "provider": config.name,
+                "status": "skipped",
+                "reason": "no API key",
+            })
+            continue
+
+        if ProviderCircuitBreaker.is_disabled(config.name):
+            results.append({
+                "provider": config.name,
+                "status": "disabled",
+                "reason": ProviderCircuitBreaker.reason(config.name),
+            })
+            continue
+
+        client = AsyncOpenAI(
+            api_key=config.api_key,
+            base_url=config.base_url if config.base_url else None,
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=config.model_name,
+                    messages=[
+                        {"role": "user", "content": "Reply with exactly: {\"test\": \"ok\"}"}
+                    ],
+                    max_tokens=50,
+                ),
+                timeout=30,
+            )
+            content = response.choices[0].message.content or ""
+            results.append({
+                "provider": config.name,
+                "model": config.model_name,
+                "base_url": config.base_url,
+                "status": "success",
+                "raw_response": content[:200],
+            })
+        except Exception as e:
+            results.append({
+                "provider": config.name,
+                "model": config.model_name,
+                "base_url": config.base_url,
+                "status": "error",
+                "error": f"{type(e).__name__}: {str(e)[:200]}",
+            })
+
+    return {
+        "env_presence": describe_provider_environment(),
+        "test_results": results,
+    }

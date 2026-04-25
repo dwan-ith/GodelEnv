@@ -21,7 +21,8 @@ RUN uv pip install --system \
     "python-dotenv>=1.0.1" \
     "fastapi>=0.111.0" \
     "uvicorn[standard]>=0.30.0" \
-    "websockets>=12.0"
+    "websockets>=12.0" \
+    "json-repair>=0.28"
 
 # Copy application code
 COPY godel_engine/ ./godel_engine/
