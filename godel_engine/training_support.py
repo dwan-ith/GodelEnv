@@ -121,17 +121,22 @@ def build_supervised_examples_freeform(
         )
         
         # Convert to JSON completion
-        action_dict: dict[str, Any] = {
-            "solution": action.solution,
-            "edit_type": action.edit_type.value,
-            "strategy_note": action.strategy_note or "Improved solution",
-        }
-        
         if include_patches and action.strategy_patch is not None:
-            action_dict["improved_strategy"] = action.strategy_patch.improved_strategy
-            action_dict["diff_description"] = action.strategy_patch.diff_description
-            action_dict["hypothesis"] = action.strategy_patch.hypothesis
-            action_dict["target_weaknesses"] = action.strategy_patch.target_weaknesses
+            action_dict = {
+                "improved_strategy": action.strategy_patch.improved_strategy,
+                "diff_description": action.strategy_patch.diff_description,
+                "hypothesis": action.strategy_patch.hypothesis,
+                "target_weaknesses": action.strategy_patch.target_weaknesses,
+                "solution": action.solution,
+                "edit_type": action.edit_type.value,
+                "strategy_note": action.strategy_note or "Strategy patch proposal",
+            }
+        else:
+            action_dict = {
+                "solution": action.solution,
+                "edit_type": action.edit_type.value,
+                "strategy_note": action.strategy_note or "Improved solution",
+            }
         
         full_completion = json.dumps(action_dict, indent=2)
         prefix = action_json_prefix(task_type)
@@ -281,9 +286,9 @@ def run_sft(
 ):
     from datasets import Dataset
     from transformers import (
-        DataCollatorForLanguageModeling,
         Trainer,
         TrainingArguments,
+        default_data_collator,
     )
 
     def tokenize(batch):
@@ -344,7 +349,7 @@ def run_sft(
         model=model,
         args=args,
         train_dataset=dataset,
-        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        data_collator=default_data_collator,
     )
     trainer.train()
     return trainer.state.log_history

@@ -69,7 +69,8 @@ def _attempt_structured_repair(text: str) -> str | None:
 
 
 def action_json_prefix(task_type: str) -> str:
-    del task_type
+    if task_type == "strategy_optimization":
+        return '{\n  "improved_strategy": "'
     return '{\n  "solution": "'
 
 
@@ -172,6 +173,25 @@ def parse_completion_to_action(
             logger.debug("JSON parse failed, using raw completion as solution.")
 
     prefix = action_json_prefix(task_type)
+    if task_type == "strategy_optimization" and completion.startswith(prefix):
+        remainder = completion[len(prefix):]
+        field_boundary = re.search(r'"\s*,\s*"(diff_description|hypothesis|target_weaknesses|solution)"\s*:', remainder, re.DOTALL)
+        improved_strategy = remainder[: field_boundary.start()].strip() if field_boundary else remainder.strip()
+        tail = remainder[field_boundary.start() :] if field_boundary else ""
+        solution = _extract_json_field(tail, "solution") or improved_strategy
+        patch = StrategyPatch(
+            improved_strategy=improved_strategy,
+            diff_description=_extract_json_field(tail, "diff_description") or "Generated strategy update",
+            hypothesis=_extract_json_field(tail, "hypothesis") or "A more explicit strategy should improve held-out performance.",
+            target_weaknesses=_extract_json_list_field(tail, "target_weaknesses") or [],
+        )
+        return GodelAction(
+            solution=solution,
+            edit_type=EditType.REWRITE,
+            strategy_note=_extract_json_field(tail, "strategy_note") or "Generated strategy patch",
+            strategy_patch=patch,
+        )
+
     if completion.startswith(prefix):
         remainder = completion[len(prefix):]
         field_boundary = re.search(r'"\s*,\s*"edit_type"\s*:', remainder, re.DOTALL)
@@ -282,27 +302,16 @@ def build_prompt(
     # Strategy optimization tasks should produce strategy patches
     if task_type == "strategy_optimization":
         output_instruction = (
-            "Generate a JSON action that proposes an improved reasoning strategy.\n"
-            "Use this exact field order and respond with JSON only:\n"
-            "{\n"
-            '  "solution": "demonstrate the improved strategy on the task",\n'
-            '  "edit_type": "rewrite",\n'
-            '  "strategy_note": "what weakness this patch addresses",\n'
-            '  "improved_strategy": "the complete revised strategy text",\n'
-            '  "diff_description": "what changed from the current strategy",\n'
-            '  "hypothesis": "why this should improve held-out performance",\n'
-            '  "target_weaknesses": ["weakness 1", "weakness 2"]\n'
-            "}\n"
+            "Generate one JSON action that proposes an improved reasoning strategy.\n"
+            "Required keys, in order: improved_strategy, diff_description, "
+            "hypothesis, target_weaknesses, solution, edit_type, strategy_note.\n"
+            "Use real task-specific content for every value. Do not copy field descriptions.\n"
         )
     else:
         output_instruction = (
-            "Generate a JSON action and respond with JSON only.\n"
-            "Use this exact field order:\n"
-            "{\n"
-            '  "solution": "your complete solution to the task",\n'
-            '  "edit_type": "rewrite",\n'
-            '  "strategy_note": "brief explanation of your approach"\n'
-            "}\n"
+            "Generate one JSON action.\n"
+            "Required keys, in order: solution, edit_type, strategy_note.\n"
+            "Use real task-specific content for every value. Do not copy field descriptions.\n"
         )
 
     strategy_digest = _strategy_digest(strategy_text) if strategy_text else "n/a"
@@ -322,7 +331,7 @@ def build_prompt(
         f"RECENT FAILURES: {failure_digest or 'n/a'}\n\n"
         f"LATEST FEEDBACK:\n{rubric_feedback}\n\n"
         f"{output_instruction}\n"
-        "Continue the JSON object below. Do not repeat the opening `{` or the `\"solution\"` key.\n"
+        "Continue the JSON object below. Do not repeat the opening brace or first key.\n"
     )
 
 

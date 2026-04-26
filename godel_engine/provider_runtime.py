@@ -40,6 +40,7 @@ DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_ROUTER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_HF_ROUTER_BASE_URL = "https://router.huggingface.co/v1"
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_PROVIDER_ORDER = ("huggingface", "ollama", "custom", "openai")
 
@@ -114,11 +115,21 @@ def _first_env(*names: str) -> str | None:
 
 
 def _build_custom_provider() -> ProviderConfig | None:
-    api_key = _env("API_KEY") or _env("CUSTOM_API_KEY")
-    base_url = _env("CUSTOM_API_BASE_URL") or _legacy_base_url()
+    api_key = _env("API_KEY") or _env("CUSTOM_API_KEY") or _env("OPENROUTER_API_KEY")
+    base_url = (
+        _env("CUSTOM_API_BASE_URL")
+        or _env("OPENROUTER_API_BASE_URL")
+        or _legacy_base_url()
+        or (DEFAULT_OPENROUTER_BASE_URL if _env("OPENROUTER_API_KEY") else None)
+    )
     if not api_key or not base_url:
         return None
-    model_name = _env("CUSTOM_MODEL_NAME") or _global_model_name() or DEFAULT_ROUTER_MODEL
+    model_name = (
+        _env("CUSTOM_MODEL_NAME")
+        or _env("OPENROUTER_MODEL_NAME")
+        or _global_model_name()
+        or DEFAULT_ROUTER_MODEL
+    )
     return ProviderConfig(
         name="custom",
         api_key=api_key,
@@ -321,6 +332,7 @@ def describe_provider_environment() -> dict[str, bool]:
         # Custom / vLLM
         "API_KEY": bool(_env("API_KEY")),
         "API_BASE_URL": bool(_env("API_BASE_URL")),
+        "OPENROUTER_API_KEY": bool(_env("OPENROUTER_API_KEY")),
         # OpenAI
         "OPENAI_API_KEY": bool(_env("OPENAI_API_KEY")),
         # Ollama (local)

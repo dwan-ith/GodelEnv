@@ -13,9 +13,9 @@ Evidence quality depends on:
 - grading_mode: 'auto' (uses LLM) vs 'deterministic' (uses heuristic graders)
 - strategy_eval_mode: 'auto' (uses LLM) vs 'deterministic' (uses heuristic solvers)
 
-The training path defaults to deterministic grading so the committed evidence is
-reproducible even if stale API credentials are present in the shell. Set
-`--grading-mode auto --strategy-eval-mode auto` to use a configured LLM provider.
+The training path defaults to hybrid LLM-first grading with deterministic
+fallback when providers fail. If you want a fully reproducible offline run, set
+`--grading-mode deterministic --strategy-eval-mode deterministic`.
 
 For the strongest evidence (genuine recursive self-improvement):
   python train.py --grading-mode auto --strategy-eval-mode auto
@@ -77,14 +77,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--grading-mode",
         type=str,
-        default=os.getenv("GODEL_GRADING_MODE", "deterministic"),
+        default=os.getenv("GODEL_GRADING_MODE", "auto"),
         help="Grading mode: auto, llm, or deterministic.",
     )
     parser.add_argument(
         "--strategy-eval-mode",
         type=str,
-        default=os.getenv("GODEL_STRATEGY_EVAL_MODE", "deterministic"),
+        default=os.getenv("GODEL_STRATEGY_EVAL_MODE", "auto"),
         help="Strategy evaluation mode: auto, llm, or deterministic.",
+    )
+    parser.add_argument(
+        "--provider-order",
+        type=str,
+        default=os.getenv("GODEL_PROVIDER_ORDER", "custom,huggingface,openai,ollama"),
+        help="Comma-separated LLM provider priority for hybrid mode.",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -123,6 +129,7 @@ def run(args: argparse.Namespace) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     os.environ["GODEL_GRADING_MODE"] = args.grading_mode
     os.environ["GODEL_STRATEGY_EVAL_MODE"] = args.strategy_eval_mode
+    os.environ["GODEL_PROVIDER_ORDER"] = args.provider_order
 
     # Warn about evidence quality based on configuration
     generation_mode = getattr(args, "generation_mode", "freeform")

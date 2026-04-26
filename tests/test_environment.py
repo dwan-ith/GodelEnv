@@ -15,6 +15,7 @@ os.environ["HUGGING_FACE_HUB_TOKEN"] = ""
 os.environ["HF_ACCESS_TOKEN"] = ""
 os.environ["API_KEY"] = ""
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["OPENROUTER_API_KEY"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
@@ -29,7 +30,9 @@ from godel_engine.provider_runtime import (
     load_provider_configs,
 )
 from godel_engine.rollout import (
+    action_json_prefix,
     build_prompt,
+    classify_action_origin,
     collect_local_prompt_dataset,
     parse_completion_to_action,
     parse_prompt_metadata,
@@ -224,6 +227,29 @@ def test_json_strategy_patch_parses_correctly() -> None:
     assert "decompose" in improved or "verify" in improved
 
 
+def test_prefixed_json_continuation_repairs_to_structured_action() -> None:
+    completion = (
+        action_json_prefix("strategy_optimization")
+        + '1. Decompose the task. 2. Check evidence. 3. Verify the final answer.",\n'
+        + '  "diff_description": "Added evidence checking and verification",\n'
+        + '  "hypothesis": "Verification should reduce repeated reasoning errors",\n'
+        + '  "target_weaknesses": ["missed evidence", "no verification"],\n'
+        + '  "solution": "Apply decomposition to identify the failure, then verify the corrected answer.",\n'
+        + '  "edit_type": "rewrite",\n'
+        + '  "strategy_note": "Adds verification before final answers"\n'
+        + "}"
+    )
+    action = parse_completion_to_action(
+        completion,
+        task_prompt="Improve a reasoning strategy.",
+        task_type="strategy_optimization",
+        current_solution="Old strategy.",
+    )
+    assert classify_action_origin(action) == "json_patch"
+    assert action.strategy_patch is not None
+    assert "verify" in action.strategy_patch.improved_strategy.lower()
+
+
 def test_freeform_prompt_uses_json_instruction() -> None:
     """Test that prompts instruct models to generate JSON, not action tokens."""
     prompt = build_prompt(
@@ -239,6 +265,8 @@ def test_freeform_prompt_uses_json_instruction() -> None:
     # New prompts use JSON instruction, not action tokens
     assert "JSON" in prompt
     assert "improved_strategy" in prompt  # Strategy task prompts mention patch format
+    assert "demonstrate the improved strategy on the task" not in prompt
+    assert "the complete revised strategy text" not in prompt
     assert len(prompt) < 3000
 
 
@@ -295,6 +323,10 @@ def test_load_provider_configs_uses_space_style_hf_base_url(monkeypatch) -> None
 
 
 def test_load_provider_configs_accepts_hf_aliases(monkeypatch) -> None:
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.setenv("HF_API_KEY", "hf-token")
     monkeypatch.setenv("HF_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct:novita")
@@ -304,6 +336,26 @@ def test_load_provider_configs_accepts_hf_aliases(monkeypatch) -> None:
     assert huggingface_config.name == "huggingface"
     assert huggingface_config.base_url == DEFAULT_HF_ROUTER_BASE_URL
     assert huggingface_config.model_name == "Qwen/Qwen2.5-7B-Instruct:novita"
+
+
+def test_load_provider_configs_accepts_openrouter_aliases(monkeypatch) -> None:
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
+    monkeypatch.delenv("CUSTOM_MODEL_NAME", raising=False)
+    monkeypatch.delenv("CUSTOM_API_BASE_URL", raising=False)
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HF_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+    monkeypatch.setenv("OPENROUTER_MODEL_NAME", "openai/gpt-4.1-mini")
+
+    configs = load_provider_configs()
+    custom_config = configs[0]
+    assert custom_config.name == "custom"
+    assert custom_config.base_url == "https://openrouter.ai/api/v1"
+    assert custom_config.model_name == "openai/gpt-4.1-mini"
 
 
 def test_openai_never_uses_hub_model_id_from_model_name(monkeypatch) -> None:

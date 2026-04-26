@@ -74,7 +74,8 @@ class Strategy:
             self.per_task_scores[task_type].append(score)
 
     def record_failure(self, description: str, max_failures: int = 20):
-        self.failure_cases.append(description)
+        if description not in self.failure_cases:
+            self.failure_cases.append(description)
         if len(self.failure_cases) > max_failures:
             self.failure_cases = self.failure_cases[-max_failures:]
 

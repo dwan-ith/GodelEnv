@@ -47,12 +47,13 @@ async def run_inference():
                 truncated = False
                 rewards = []
                 last_step_result = result
+                error_msg = "null"
                 
                 while not (terminated or truncated):
                     # Infer rubrics from observation scores
                     inferred_rubrics = {k: f"Optimize {k}" for k in obs.rubric_scores.scores.keys()}
                     
-                    # Step the env
+                    # Get agent action
                     action_result = await agent.act(
                         task_prompt=obs.task_prompt,
                         current_solution=obs.current_solution,
@@ -62,46 +63,47 @@ async def run_inference():
                         recent_failures=obs.recent_failures,
                         downstream_scores=obs.downstream_scores,
                     )
-                
-                try:
-                    step_result = await env.step(action_result)
-                    last_step_result = step_result
-                    error_msg = "null"
-                except Exception as e:
-                    # Keep the last valid observation so the trace remains parseable.
-                    step_result = last_step_result
-                    error_msg = str(e).replace('\n', ' ')
-                    reward_val = -1.0
+                    
+                    # Step the env
+                    try:
+                        step_result = await env.step(action_result)
+                        last_step_result = step_result
+                        error_msg = "null"
+                    except Exception as e:
+                        # Keep the last valid observation so the trace remains parseable.
+                        step_result = last_step_result
+                        error_msg = str(e).replace('\n', ' ')
+                        reward_val = -1.0
+                        rewards.append(reward_val)
+                        print(
+                            f"[STEP] step={obs.step} action={format_action(action_result)} "
+                            f"reward={reward_val:.2f} done=true error={error_msg}"
+                        )
+                        break
+                    
+                    obs = step_result.observation
+                    reward_val = step_result.reward
                     rewards.append(reward_val)
-                    print(
-                        f"[STEP] step={obs.step} action={format_action(action_result)} "
-                        f"reward={reward_val:.2f} done=true error={error_msg}"
-                    )
-                    break
+                    terminated = step_result.terminated
+                    truncated = step_result.truncated
+                    
+                    is_done = str(terminated or truncated).lower()
+                    action_str = format_action(action_result)
+                    
+                    # [STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+                    print(f"[STEP] step={obs.step} action={action_str} reward={reward_val:.2f} done={is_done} error={error_msg}")
                 
-                obs = step_result.observation
-                reward_val = step_result.reward
-                rewards.append(reward_val)
-                terminated = step_result.terminated
-                truncated = step_result.truncated
-                
-                is_done = str(terminated or truncated).lower()
-                action_str = format_action(action_result)
-                
-                # [STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-                print(f"[STEP] step={obs.step} action={action_str} reward={reward_val:.2f} done={is_done} error={error_msg}")
-            
-            # Episode complete
-            is_success = str(obs.total_score >= 0.90).lower()
-            clamped_final_score = max(0.001, min(0.999, obs.total_score))
-            rewards_str = ",".join([f"{r:.2f}" for r in rewards])
-            # [END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
-            print(f"[END] success={is_success} steps={obs.step} score={clamped_final_score:.3f} rewards={rewards_str}")
+                # Episode complete
+                is_success = str(obs.total_score >= 0.90).lower()
+                clamped_final_score = max(0.001, min(0.999, obs.total_score))
+                rewards_str = ",".join([f"{r:.2f}" for r in rewards])
+                # [END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+                print(f"[END] success={is_success} steps={obs.step} score={clamped_final_score:.3f} rewards={rewards_str}")
 
-        except Exception as ep_error:
-            # If the entire episode crashes
-            error_val = str(ep_error).replace("\n", " ")
-            print(f"[END] success=false steps=0 score=0.001 rewards= error={error_val}")
+            except Exception as ep_error:
+                # If the entire episode crashes
+                error_val = str(ep_error).replace("\n", " ")
+                print(f"[END] success=false steps=0 score=0.001 rewards= error={error_val}")
 
 if __name__ == "__main__":
     asyncio.run(run_inference())
