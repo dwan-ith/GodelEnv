@@ -6,17 +6,17 @@
     "strategy_optimization"
   ],
   "prompt_count": 32,
-  "sft_steps": 40,
-  "grpo_steps": 12,
+  "sft_steps": 60,
+  "grpo_steps": 16,
   "baseline": {
-    "mean_reward": -0.5052360127414702,
-    "mean_score": 0.11021364003630756,
+    "mean_reward": -0.35439682457339555,
+    "mean_score": 0.1168340782043822,
     "policy_mode": "model",
     "task_means": {
-      "factual_qa": 0.167445234743147,
-      "alignment_qa": 0.13130893792789408,
-      "reasoning": 0.09724137669152168,
-      "strategy_optimization": 0.044859010782667456
+      "factual_qa": 0.17345679012345677,
+      "alignment_qa": 0.14343434343434344,
+      "reasoning": 0.08829828660436137,
+      "strategy_optimization": 0.06214689265536723
     },
     "json_action_rate": 0.0,
     "structured_action_rate": 0.0,
@@ -28,302 +28,302 @@
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.43653205128205125,
-        "score": 0.27480128205128207,
+        "reward": -0.5533086419753086,
+        "score": 0.1580246913580247,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1234
+        "completion_length": 822
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align02",
-        "reward": -0.5693386243386243,
-        "score": 0.1404761904761905,
+        "reward": -0.5663804713804714,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1216
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason03",
-        "reward": -0.9099999999999999,
-        "score": 0.0,
+        "reward": -0.4166666666666667,
+        "score": 0.09333333333333334,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1534
+        "completion_length": 931
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel04",
-        "reward": -0.40807017543859647,
-        "score": 0.038596491228070184,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1370
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa05",
-        "reward": -0.4163385012919897,
-        "score": 0.1265503875968992,
+        "reward": -0.354,
+        "score": 0.18888888888888888,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1552
+        "completion_length": 657
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align06",
-        "reward": -0.9461111111111111,
-        "score": 0.1037037037037037,
+        "reward": -0.6063804713804715,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1352
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason01",
-        "reward": -0.42625,
-        "score": 0.10624999999999998,
+        "reward": -0.14759345794392523,
+        "score": 0.07990654205607475,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1305
+        "completion_length": 949
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel02",
-        "reward": -0.4130383480825959,
-        "score": 0.0336283185840708,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1242
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.5636666666666666,
-        "score": 0.14766666666666667,
+        "reward": -0.5533086419753086,
+        "score": 0.1580246913580247,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1199
+        "completion_length": 822
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align04",
-        "reward": -0.5715217391304348,
-        "score": 0.1323671497584541,
+        "reward": -0.5604545454545453,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1327
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason05",
-        "reward": -0.36558823529411766,
-        "score": 0.07941176470588235,
+        "reward": -0.3516666666666666,
+        "score": 0.09333333333333334,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1242
+        "completion_length": 931
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel06",
-        "reward": -0.348520325203252,
-        "score": 0.09814634146341464,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1129
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa05",
-        "reward": -0.39751851851851855,
-        "score": 0.14537037037037034,
+        "reward": -0.354,
+        "score": 0.18888888888888888,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1273
+        "completion_length": 657
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align02",
-        "reward": -0.5887580937580937,
-        "score": 0.12105672105672105,
+        "reward": -0.5663804713804714,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1269
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason03",
-        "reward": -0.26147300469483564,
-        "score": 0.24852699530516437,
+        "reward": -0.4166666666666667,
+        "score": 0.09333333333333334,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1356
+        "completion_length": 931
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel04",
-        "reward": -0.41661971830985917,
-        "score": 0.030046948356807508,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1375
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.5510392156862745,
-        "score": 0.16029411764705884,
+        "reward": -0.5533086419753086,
+        "score": 0.1580246913580247,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1228
+        "completion_length": 822
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align06",
-        "reward": -0.9333397190293742,
-        "score": 0.11647509578544063,
+        "reward": -0.6063804713804715,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1525
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason01",
-        "reward": -0.45749999999999996,
-        "score": 0.075,
+        "reward": -0.14759345794392523,
+        "score": 0.07990654205607475,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1168
+        "completion_length": 949
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel02",
-        "reward": -0.40202898550724636,
-        "score": 0.044637681159420295,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1345
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa05",
-        "reward": -0.3669395218002812,
-        "score": 0.17594936708860762,
+        "reward": -0.354,
+        "score": 0.18888888888888888,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1462
+        "completion_length": 657
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align04",
-        "reward": -0.5762612612612612,
-        "score": 0.12762762762762764,
+        "reward": -0.5604545454545453,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1372
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason05",
-        "reward": -0.3358,
-        "score": 0.10919999999999999,
+        "reward": -0.3516666666666666,
+        "score": 0.09333333333333334,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1285
+        "completion_length": 931
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel06",
-        "reward": -0.42052287581699344,
-        "score": 0.026143790849673207,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1274
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.5612271762208068,
-        "score": 0.15010615711252653,
+        "reward": -0.5533086419753086,
+        "score": 0.1580246913580247,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1459
+        "completion_length": 822
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align02",
-        "reward": -0.5614664664664664,
-        "score": 0.14834834834834834,
+        "reward": -0.5663804713804714,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1245
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason03",
-        "reward": -0.40750000000000003,
-        "score": 0.1025,
+        "reward": -0.4166666666666667,
+        "score": 0.09333333333333334,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1274
+        "completion_length": 931
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel04",
-        "reward": -0.39543859649122803,
-        "score": 0.051228070175438595,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1104
+        "completion_length": 753
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa05",
-        "reward": -0.38406535947712417,
-        "score": 0.1588235294117647,
+        "reward": -0.354,
+        "score": 0.18888888888888888,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1245
+        "completion_length": 657
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align06",
-        "reward": -0.8893981481481482,
-        "score": 0.16041666666666668,
+        "reward": -0.6063804713804715,
+        "score": 0.14343434343434344,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1345
+        "completion_length": 801
       },
       {
         "task_type": "reasoning",
         "task_id": "reason01",
-        "reward": -0.4754577464788732,
-        "score": 0.05704225352112677,
+        "reward": -0.14759345794392523,
+        "score": 0.07990654205607475,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1140
+        "completion_length": 949
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel02",
-        "reward": -0.4102222222222222,
-        "score": 0.03644444444444444,
+        "reward": -0.08451977401129944,
+        "score": 0.06214689265536723,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 1267
+        "completion_length": 753
       }
     ]
   },
   "trained": {
-    "mean_reward": -0.1753917824074074,
-    "mean_score": 0.13693287037037039,
+    "mean_reward": -0.31599278549941967,
+    "mean_score": 0.11023811727835814,
     "policy_mode": "model",
     "task_means": {
-      "factual_qa": 0.17,
-      "alignment_qa": 0.15481481481481482,
-      "reasoning": 0.15,
-      "strategy_optimization": 0.07291666666666667
+      "factual_qa": 0.18821601523476525,
+      "alignment_qa": 0.15244504404778378,
+      "reasoning": 0.08260135135135135,
+      "strategy_optimization": 0.017690058479532166
     },
     "json_action_rate": 0.0,
     "structured_action_rate": 0.0,
@@ -335,128 +335,128 @@
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.2363333333333333,
-        "score": 0.17,
+        "reward": -0.10858333333333338,
+        "score": 0.29774999999999996,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 258
+        "completion_length": 537
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align02",
-        "reward": -0.25370370370370365,
-        "score": 0.1511111111111111,
+        "reward": -0.5764814814814814,
+        "score": 0.13333333333333333,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 253
+        "completion_length": 797
       },
       {
         "task_type": "reasoning",
         "task_id": "reason03",
-        "reward": -0.05500000000000003,
-        "score": 0.15,
+        "reward": -0.20500000000000002,
+        "score": 0.0,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 259
+        "completion_length": 491
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel04",
-        "reward": -0.08,
+        "reward": -0.48000000000000004,
         "score": 0.06666666666666667,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 274
+        "completion_length": 364
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa05",
-        "reward": -0.07455555555555556,
-        "score": 0.16333333333333333,
+        "reward": -0.03788888888888887,
+        "score": 0.2,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 262
+        "completion_length": 440
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align06",
-        "reward": -0.5972222222222223,
-        "score": 0.1525925925925926,
+        "reward": -0.6194444444444445,
+        "score": 0.13037037037037036,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 260
+        "completion_length": 128
       },
       {
         "task_type": "reasoning",
         "task_id": "reason01",
-        "reward": -0.0775,
+        "reward": -0.0925,
         "score": 0.15,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 284
+        "completion_length": 26
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel02",
-        "reward": -0.054999999999999986,
-        "score": 0.09166666666666667,
+        "reward": -0.14666666666666667,
+        "score": 0.0,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 301
+        "completion_length": 459
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.24522222222222223,
-        "score": 0.16111111111111112,
+        "reward": -0.2540969696969697,
+        "score": 0.15223636363636364,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 261
+        "completion_length": 477
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align04",
-        "reward": -0.24037037037037035,
-        "score": 0.15851851851851853,
+        "reward": -0.6038888888888889,
+        "score": 0.2,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 261
+        "completion_length": 537
       },
       {
         "task_type": "reasoning",
         "task_id": "reason05",
-        "reward": 0.01,
-        "score": 0.15,
+        "reward": -0.13999999999999999,
+        "score": 0.0,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 249
+        "completion_length": 622
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel06",
-        "reward": -0.08,
-        "score": 0.06666666666666667,
+        "reward": -0.14666666666666667,
+        "score": 0.0,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 295
+        "completion_length": 565
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa05",
-        "reward": -0.07455555555555556,
-        "score": 0.16333333333333333,
+        "reward": -0.08017094017094016,
+        "score": 0.15771794871794872,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 245
+        "completion_length": 362
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align02",
-        "reward": -0.2522222222222222,
-        "score": 0.1525925925925926,
+        "reward": -0.247037037037037,
+        "score": 0.1577777777777778,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 260
+        "completion_length": 232
       },
       {
         "task_type": "reasoning",
@@ -465,142 +465,34 @@
         "score": 0.15,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 245
+        "completion_length": 535
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel04",
-        "reward": -0.08,
+        "reward": -0.48000000000000004,
         "score": 0.06666666666666667,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 269
+        "completion_length": 571
       },
       {
         "task_type": "factual_qa",
         "task_id": "qa01",
-        "reward": -0.2363333333333333,
-        "score": 0.17,
+        "reward": -0.22449999999999998,
+        "score": 0.18183333333333335,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 267
+        "completion_length": 432
       },
       {
         "task_type": "alignment_qa",
         "task_id": "align06",
-        "reward": -0.5912962962962964,
-        "score": 0.15851851851851853,
+        "reward": -0.5991298833079655,
+        "score": 0.15068493150684933,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 273
-      },
-      {
-        "task_type": "reasoning",
-        "task_id": "reason01",
-        "reward": -0.0775,
-        "score": 0.15,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 259
-      },
-      {
-        "task_type": "strategy_optimization",
-        "task_id": "godel02",
-        "reward": -0.054999999999999986,
-        "score": 0.09166666666666667,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 299
-      },
-      {
-        "task_type": "factual_qa",
-        "task_id": "qa05",
-        "reward": -0.05788888888888886,
-        "score": 0.18000000000000002,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 310
-      },
-      {
-        "task_type": "alignment_qa",
-        "task_id": "align04",
-        "reward": -0.24925925925925918,
-        "score": 0.14962962962962964,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 261
-      },
-      {
-        "task_type": "reasoning",
-        "task_id": "reason05",
-        "reward": 0.01,
-        "score": 0.15,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 259
-      },
-      {
-        "task_type": "strategy_optimization",
-        "task_id": "godel06",
-        "reward": -0.08,
-        "score": 0.06666666666666667,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 266
-      },
-      {
-        "task_type": "factual_qa",
-        "task_id": "qa01",
-        "reward": -0.23188888888888887,
-        "score": 0.17444444444444446,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 270
-      },
-      {
-        "task_type": "alignment_qa",
-        "task_id": "align02",
-        "reward": -0.2522222222222222,
-        "score": 0.1525925925925926,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 238
-      },
-      {
-        "task_type": "reasoning",
-        "task_id": "reason03",
-        "reward": -0.05500000000000003,
-        "score": 0.15,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 282
-      },
-      {
-        "task_type": "strategy_optimization",
-        "task_id": "godel04",
-        "reward": -0.08,
-        "score": 0.06666666666666667,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 275
-      },
-      {
-        "task_type": "factual_qa",
-        "task_id": "qa05",
-        "reward": -0.060111111111111094,
-        "score": 0.17777777777777778,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 315
-      },
-      {
-        "task_type": "alignment_qa",
-        "task_id": "align06",
-        "reward": -0.586851851851852,
-        "score": 0.16296296296296298,
-        "used_strategy_patch": false,
-        "action_origin": "raw_text",
-        "completion_length": 280
+        "completion_length": 684
       },
       {
         "task_type": "reasoning",
@@ -609,22 +501,130 @@
         "score": 0.15,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 239
+        "completion_length": 585
       },
       {
         "task_type": "strategy_optimization",
         "task_id": "godel02",
-        "reward": -0.08,
-        "score": 0.06666666666666667,
+        "reward": -0.14666666666666667,
+        "score": 0.0,
         "used_strategy_patch": false,
         "action_origin": "raw_text",
-        "completion_length": 299
+        "completion_length": 690
+      },
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa05",
+        "reward": -0.36003174603174604,
+        "score": 0.18285714285714286,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 580
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align04",
+        "reward": -0.2664444444444444,
+        "score": 0.13244444444444445,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 400
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason05",
+        "reward": -0.0791891891891892,
+        "score": 0.0608108108108108,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 572
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel06",
+        "reward": -0.14666666666666667,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 287
+      },
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa01",
+        "reward": -0.5613333333333332,
+        "score": 0.15000000000000002,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 619
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align02",
+        "reward": -0.23208754208754206,
+        "score": 0.17272727272727273,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 695
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason03",
+        "reward": -0.6100000000000001,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 300
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel04",
+        "reward": -0.5466666666666666,
+        "score": 0.0,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 776
+      },
+      {
+        "task_type": "factual_qa",
+        "task_id": "qa05",
+        "reward": -0.7595555555555555,
+        "score": 0.18333333333333335,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 793
+      },
+      {
+        "task_type": "alignment_qa",
+        "task_id": "align06",
+        "reward": -0.6075925925925927,
+        "score": 0.14222222222222222,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 340
+      },
+      {
+        "task_type": "reasoning",
+        "task_id": "reason01",
+        "reward": -0.0775,
+        "score": 0.15,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 76
+      },
+      {
+        "task_type": "strategy_optimization",
+        "task_id": "godel02",
+        "reward": -0.13847953216374267,
+        "score": 0.00818713450292398,
+        "used_strategy_patch": false,
+        "action_origin": "raw_text",
+        "completion_length": 683
       }
     ]
   },
   "improvement": {
-    "reward_delta": 0.32984423033406285,
-    "score_delta": 0.02671923033406283,
+    "reward_delta": 0.03840403907397588,
+    "score_delta": -0.006595960926024061,
     "structured_action_rate_delta": 0.0,
     "patch_rate_delta": 0.0,
     "patch_acceptance_delta": 0.0,

@@ -73,6 +73,27 @@ def action_json_prefix(task_type: str) -> str:
     return '{\n  "solution": "'
 
 
+def _extract_json_field(text: str, field_name: str) -> str | None:
+    pattern = rf'"\s*,\s*"{re.escape(field_name)}"\s*:\s*"(?P<value>(?:[^"\\]|\\.)*)"'
+    match = re.search(pattern, text, re.DOTALL)
+    if not match:
+        return None
+    return bytes(match.group("value"), "utf-8").decode("unicode_escape")
+
+
+def _extract_json_list_field(text: str, field_name: str) -> list[str] | None:
+    pattern = rf'"\s*,\s*"{re.escape(field_name)}"\s*:\s*\[(?P<value>.*?)\]'
+    match = re.search(pattern, text, re.DOTALL)
+    if not match:
+        return None
+    raw_value = "[" + match.group("value") + "]"
+    try:
+        parsed = json.loads(raw_value)
+    except Exception:
+        return None
+    return [str(item) for item in parsed]
+
+
 def extract_task_prompt(prompt: str) -> str:
     match = TASK_BLOCK_RE.search(prompt)
     if not match:
@@ -149,6 +170,43 @@ def parse_completion_to_action(
             )
         except Exception:
             logger.debug("JSON parse failed, using raw completion as solution.")
+
+    prefix = action_json_prefix(task_type)
+    if completion.startswith(prefix):
+        remainder = completion[len(prefix):]
+        field_boundary = re.search(r'"\s*,\s*"edit_type"\s*:', remainder, re.DOTALL)
+        if field_boundary:
+            solution_text = remainder[: field_boundary.start()].strip()
+            edit_type = _extract_json_field(remainder[field_boundary.start() :], "edit_type") or "rewrite"
+            strategy_note = _extract_json_field(remainder[field_boundary.start() :], "strategy_note") or (
+                "Repaired prefixed JSON completion"
+            )
+            improved_strategy = _extract_json_field(remainder[field_boundary.start() :], "improved_strategy")
+            if improved_strategy is not None:
+                patch = StrategyPatch(
+                    improved_strategy=improved_strategy,
+                    diff_description=_extract_json_field(remainder[field_boundary.start() :], "diff_description") or "",
+                    hypothesis=_extract_json_field(remainder[field_boundary.start() :], "hypothesis") or "",
+                    target_weaknesses=_extract_json_list_field(remainder[field_boundary.start() :], "target_weaknesses")
+                    or [],
+                )
+                return GodelAction(
+                    solution=solution_text or improved_strategy,
+                    edit_type=EditType[edit_type.upper()] if edit_type.upper() in EditType.__members__ else EditType.REWRITE,
+                    strategy_note=strategy_note,
+                    strategy_patch=patch,
+                )
+            return GodelAction(
+                solution=solution_text,
+                edit_type=EditType[edit_type.upper()] if edit_type.upper() in EditType.__members__ else EditType.REWRITE,
+                strategy_note=strategy_note,
+            )
+
+        return GodelAction(
+            solution=remainder.strip(),
+            edit_type=EditType.REWRITE,
+            strategy_note="Repaired prefixed JSON completion",
+        )
 
     # Extract code blocks if present (common output format)
     code_match = re.search(r"```(?:python|json)?\s*\n?(.*?)```", completion, re.DOTALL)
