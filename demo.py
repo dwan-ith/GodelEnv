@@ -31,14 +31,14 @@ logger = logging.getLogger("demo")
 # Import env components
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from godel_engine.client import GodelEngineEnv
-from godel_engine.environment import GodelEnvironment
+from godel_engine.client import GodelEngineEnv
 from godel_engine.agent import AutoAgent
 
 
-def get_task_rubrics(task_type: str) -> dict[str, str]:
-    task_cls = GodelEnvironment.TASKS.get(task_type)
-    task = task_cls() if task_cls else None
-    return task._get_rubrics() if task else {}
+def get_task_rubrics(task_type: str, obs) -> dict[str, str]:
+    if not obs or not obs.rubric_scores.scores:
+        return {}
+    return {k: f"Optimize {k}" for k in obs.rubric_scores.scores.keys()}
 
 
 def print_banner(text: str, width: int = 70):
@@ -77,7 +77,7 @@ async def run_demo_episode(
         action = await agent.act(
             task_prompt=obs.task_prompt,
             current_solution=obs.current_solution,
-            rubrics=get_task_rubrics(task_type),
+            rubrics=get_task_rubrics(task_type, obs),
             task_type=task_type,
             strategy_text=obs.current_strategy,
             recent_failures=obs.recent_failures,
@@ -126,11 +126,9 @@ async def main(args):
             metrics = await run_demo_episode(env_client, agent, task, "BASE", seed=42)
             results.append(metrics)
 
-    if args.space_url:
-        async with GodelEngineEnv(args.space_url) as env_client:
-            await _run_with_client(env_client)
-    else:
-        await _run_with_client(GodelEnvironment(seed=42))
+    url = args.space_url or "http://localhost:7860"
+    async with GodelEngineEnv(url) as env_client:
+        await _run_with_client(env_client)
 
     # Summary table
     print("\n")
@@ -140,12 +138,6 @@ async def main(args):
     for r in results:
         print(f"  {r['label']:<10} {r['task']:<25} {r['initial_score']:>6.3f} "
               f"{r['final_score']:>6.3f} {r['delta']:>+7.3f} {r['steps']:>6} {r['reason']:<15}")
-
-    if not args.space_url:
-        print(f"\n  Curriculum State:")
-        stats = GodelEnvironment(seed=42).curriculum.get_stats()
-        for key, val in stats.items():
-            print(f"    {key}: {val}")
 
     print("\n" + "=" * 70)
     print("  Demo complete!")

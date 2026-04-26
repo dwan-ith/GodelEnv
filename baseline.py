@@ -94,10 +94,11 @@ async def run_episode(
     cumulative_reward = 0.0
 
     while not (result.terminated or result.truncated):
+        inferred_rubrics = {k: f"Optimize {k}" for k in obs.rubric_scores.scores.keys()}
         action = await agent.act(
             task_prompt=obs.task_prompt,
             current_solution=obs.current_solution,
-            rubrics=env.current_task._get_rubrics(),
+            rubrics=inferred_rubrics,
             task_type=task_type,
             strategy_text=obs.current_strategy,
             recent_failures=obs.recent_failures,

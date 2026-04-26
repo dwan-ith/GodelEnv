@@ -9,7 +9,7 @@ import sys
 
 from dotenv import load_dotenv
 
-from godel_engine.environment import GodelEnvironment
+from godel_engine.client import GodelEngineEnv
 from godel_engine.agent import AutoAgent
 from godel_engine.models import GodelAction
 
@@ -29,38 +29,39 @@ def format_action(action: GodelAction) -> str:
     return f"{edit_type}('{safe_note[:30]}')"
 
 async def run_inference():
-    env = GodelEnvironment(seed=42)
+    env_url = os.getenv("GODEL_URL", "http://localhost:7860")
     agent = AutoAgent()
     
-    # We will run 1 episode of each task to demonstrate everything
-    # The hackathon script often takes over the environment wrapper, but here we run a loop
-    # We'll just run a specific challenging task to show capability
     tasks_to_test = ["factual_qa", "code_improvement", "strategy_optimization"]
     
-    for task_type in tasks_to_test:
-        try:
-            result = await env.reset(task_type=task_type, seed=42)
-            obs = result.observation
-            
-            # [START] task=<task_name> env=<benchmark> model=<model_name>
-            print(f"[START] task={task_type} env=GodelEnv model={MODEL_NAME}")
-            
-            terminated = False
-            truncated = False
-            rewards = []
-            last_step_result = result
-            
-            while not (terminated or truncated):
-                # Step the env
-                action_result = await agent.act(
-                    task_prompt=obs.task_prompt,
-                    current_solution=obs.current_solution,
-                    rubrics=env.current_task._get_rubrics(),
-                    task_type=task_type,
-                    strategy_text=obs.current_strategy,
-                    recent_failures=obs.recent_failures,
-                    downstream_scores=obs.downstream_scores,
-                )
+    async with GodelEngineEnv(env_url) as env:
+        for task_type in tasks_to_test:
+            try:
+                result = await env.reset(task_type=task_type)
+                obs = result.observation
+                
+                # [START] task=<task_name> env=<benchmark> model=<model_name>
+                print(f"[START] task={task_type} env=GodelEnv model={MODEL_NAME}")
+                
+                terminated = False
+                truncated = False
+                rewards = []
+                last_step_result = result
+                
+                while not (terminated or truncated):
+                    # Infer rubrics from observation scores
+                    inferred_rubrics = {k: f"Optimize {k}" for k in obs.rubric_scores.scores.keys()}
+                    
+                    # Step the env
+                    action_result = await agent.act(
+                        task_prompt=obs.task_prompt,
+                        current_solution=obs.current_solution,
+                        rubrics=inferred_rubrics,
+                        task_type=task_type,
+                        strategy_text=obs.current_strategy,
+                        recent_failures=obs.recent_failures,
+                        downstream_scores=obs.downstream_scores,
+                    )
                 
                 try:
                     step_result = await env.step(action_result)
