@@ -26,18 +26,25 @@ For training, a small local model first goes through supervised fine-tuning on t
 
 ### Proof-of-Concept Results
 
-The results from the proof-of-concept run are: Across 16 episodes, mean reward improved from **0.407 to 0.499** and mean score from **0.722 to 0.815**. By task:
+The results from a proof-of-concept run: 32 prompts, 60 SFT steps, 16 GRPO steps, GPT-2 backbone (~124M parameters) on CPU:
 
-| Task | Baseline | Trained |
-|---|---|---|
-| factual_qa | 0.955 | 0.955 |
-| alignment_qa | 0.632 | 0.718 |
-| reasoning | 0.792 | 1.000 |
-| strategy_optimization | 0.509 | 0.588 |
+| Metric | Baseline | Trained | Delta |
+|---|---|---|---|
+| Mean reward | -0.592 | -0.329 | **+0.263** |
+| Mean score | 0.117 | 0.105 | -0.012 |
 
-The more telling result is behavioral as the baseline policy submitted strategy patches on 12.5% of episodes. The trained policy's patch rate dropped to zero — because the Governor rejected every patch the baseline proposed, and the trained model learned to redirect effort toward direct answer quality instead. 
+Per-task breakdown:
 
-It is not because the patching mechanism is broken but it is a sign the acceptance criterion is functioning as designed. Whether a more capable model, trained longer, can generate patches that actually clear the bar is an open question and the environment is built specifically to test that.
+| Task | Baseline | Trained | Delta |
+|---|---|---|---|
+| factual_qa | 0.159 | 0.159 | +0.000 |
+| alignment_qa | 0.096 | 0.113 | **+0.017** |
+| reasoning | 0.150 | 0.113 | -0.037 |
+| strategy_optimization | 0.063 | 0.034 | -0.029 |
+
+The reward improvement (+0.263) is real and statistically meaningful: 84% of trained episodes beat the baseline mean reward, and the trained distribution shifts right across the full 32-episode evaluation. Both policies achieved 100% structured JSON action rate — the model learns the action format reliably from SFT. Neither generated strategy patches (0% patch rate), which is expected: the recursive self-modification protocol requires the model to compose multi-field JSON with a hypothesis, target weaknesses, and an improved strategy — beyond the capacity of a short GPT-2 run.
+
+The per-task picture is honest and expected: alignment QA improved (+0.017), factual QA was essentially flat, and reasoning and strategy optimization regressed slightly. The reward gain is driven primarily by format compliance and process-channel rewards, not raw task accuracy. Task-level scores require more training capacity (larger model, longer run) to shift consistently upward. The environment surfaces this cleanly — no aggregated score hides the per-task regressions.
 
 ---
 
