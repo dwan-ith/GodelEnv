@@ -32,6 +32,10 @@ from dotenv import load_dotenv
 load_dotenv(override=False)
 logger = logging.getLogger("godel_env.provider_runtime")
 
+# Flags to avoid spamming repeated log messages
+_warned_no_providers = False
+_logged_provider_info = False
+
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_ROUTER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
@@ -243,6 +247,8 @@ def load_provider_configs() -> list[ProviderConfig]:
     
     Customize order via GODEL_PROVIDER_ORDER env var.
     """
+    global _warned_no_providers, _logged_provider_info
+    
     candidates = {
         "custom": _build_custom_provider(),
         "openai": _build_openai_provider(),
@@ -256,16 +262,21 @@ def load_provider_configs() -> list[ProviderConfig]:
         if config is not None:
             configs.append(config)
     
+    # Log provider info only once per session to avoid spam
     if configs:
-        logger.info(
-            "Configured LLM providers (in priority order): %s",
-            ", ".join(f"{c.name}:{c.model_name}" for c in configs)
-        )
+        if not _logged_provider_info:
+            logger.info(
+                "Configured LLM providers (in priority order): %s",
+                ", ".join(f"{c.name}:{c.model_name}" for c in configs)
+            )
+            _logged_provider_info = True
     else:
-        logger.warning(
-            "No LLM providers configured. Set HF_TOKEN, OPENAI_API_KEY, or "
-            "OLLAMA_MODEL_NAME to enable LLM mode."
-        )
+        if not _warned_no_providers:
+            logger.warning(
+                "No LLM providers configured. Set HF_TOKEN, OPENAI_API_KEY, or "
+                "OLLAMA_MODEL_NAME to enable LLM mode."
+            )
+            _warned_no_providers = True
     
     return configs
 
@@ -358,8 +369,12 @@ class ProviderCircuitBreaker:
 
     @classmethod
     def reset(cls, provider_name: str | None = None) -> None:
+        global _warned_no_providers, _logged_provider_info
         if provider_name is None:
             cls._disabled = {}
+            # Also reset the logging flags so warnings can appear again after reset
+            _warned_no_providers = False
+            _logged_provider_info = False
             return
         cls._disabled.pop(provider_name, None)
 

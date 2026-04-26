@@ -85,19 +85,22 @@ from godel_engine.training_support import (
 # %%
 TASKS = ["factual_qa", "alignment_qa", "reasoning", "strategy_optimization"]
 NUM_PROMPTS = 32
-SFT_STEPS = 40
-GRPO_STEPS = 12
-MAX_INPUT_LENGTH = 512
-MAX_NEW_TOKENS = 192
+SFT_STEPS = 60
+GRPO_STEPS = 16
+MAX_INPUT_LENGTH = 768
+MAX_NEW_TOKENS = 224
 EFFECTIVE_MAX_NEW_TOKENS = max(MAX_NEW_TOKENS, 160)
 OUTPUT_DIR = Path("artifacts/training_run")
+BASE_MODEL = os.getenv("GODEL_BASE_MODEL", "gpt2")
 GRADING_MODE = os.getenv("GODEL_GRADING_MODE", "deterministic")
 STRATEGY_EVAL_MODE = os.getenv("GODEL_STRATEGY_EVAL_MODE", "deterministic")
 USE_CPU = not torch.cuda.is_available()
 os.environ["GODEL_GRADING_MODE"] = GRADING_MODE
 os.environ["GODEL_STRATEGY_EVAL_MODE"] = STRATEGY_EVAL_MODE
+os.environ["GODEL_BASE_MODEL"] = BASE_MODEL
 print(f"Training config: {NUM_PROMPTS} prompts, {SFT_STEPS} SFT steps, {GRPO_STEPS} GRPO steps")
 print(f"Effective completion length for GRPO/eval: {EFFECTIVE_MAX_NEW_TOKENS} tokens")
+print(f"Base model: {BASE_MODEL}")
 print(f"Modes: grading={GRADING_MODE}, strategy_eval={STRATEGY_EVAL_MODE}")
 print(f"CUDA available: {torch.cuda.is_available()} | using_cpu={USE_CPU}")
 
@@ -132,7 +135,7 @@ model = build_freeform_model(
     max_length=max(MAX_INPUT_LENGTH + EFFECTIVE_MAX_NEW_TOKENS + 64, 1024),
 )
 total_params = sum(parameter.numel() for parameter in model.parameters())
-print(f"Model: GPT-2 freeform ({total_params:,} parameters)")
+print(f"Model: {BASE_MODEL} freeform ({total_params:,} parameters)")
 
 
 # %% [markdown]

@@ -68,6 +68,11 @@ def _attempt_structured_repair(text: str) -> str | None:
     return None
 
 
+def action_json_prefix(task_type: str) -> str:
+    del task_type
+    return '{\n  "solution": "'
+
+
 def extract_task_prompt(prompt: str) -> str:
     match = TASK_BLOCK_RE.search(prompt)
     if not match:
@@ -259,7 +264,7 @@ def build_prompt(
         f"RECENT FAILURES: {failure_digest or 'n/a'}\n\n"
         f"LATEST FEEDBACK:\n{rubric_feedback}\n\n"
         f"{output_instruction}\n"
-        "Respond with valid JSON only:\n"
+        "Continue the JSON object below. Do not repeat the opening `{` or the `\"solution\"` key.\n"
     )
 
 
@@ -365,8 +370,16 @@ def make_freeform_grpo_rollout(max_new_tokens: int = 256):
 
         tokenizer = trainer.processing_class
 
+        prefixed_prompts = []
+        prompt_prefixes = []
+        for prompt in prompts:
+            meta = parse_prompt_metadata(prompt)
+            prefix = action_json_prefix(meta["task_type"])
+            prompt_prefixes.append(prefix)
+            prefixed_prompts.append(prompt + prefix)
+
         inputs = tokenizer(
-            prompts,
+            prefixed_prompts,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -380,11 +393,11 @@ def make_freeform_grpo_rollout(max_new_tokens: int = 256):
 
         attention_mask = inputs.get("attention_mask")
         if attention_mask is None:
-            prompt_lengths = [inputs["input_ids"].shape[1]] * len(prompts)
+            prompt_lengths = [inputs["input_ids"].shape[1]] * len(prefixed_prompts)
         else:
             prompt_lengths = attention_mask.sum(dim=1).tolist()
 
-        for i, prompt in enumerate(prompts):
+        for i, prompt in enumerate(prefixed_prompts):
             plen = int(prompt_lengths[i])
             row_input_ids = inputs["input_ids"][i : i + 1, :plen]
             row_mask = (
@@ -419,9 +432,7 @@ def make_freeform_grpo_rollout(max_new_tokens: int = 256):
                 tok_lps.append(float(log_probs[t, nxt].item()))
             logprobs_out.append(tok_lps if tok_lps else [0.0])
 
-            completions.append(
-                tokenizer.decode(gen_part, skip_special_tokens=True)
-            )
+            completions.append(prompt_prefixes[i] + tokenizer.decode(gen_part, skip_special_tokens=True))
 
         all_rewards: Dict[str, list] = {
             "task_score_delta": [],

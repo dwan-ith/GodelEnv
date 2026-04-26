@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import warnings
 from collections import defaultdict
 from pathlib import Path
@@ -29,6 +30,7 @@ from typing import Any, Iterable
 from godel_engine.async_utils import run_async
 from godel_engine.deterministic_solver import build_reference_action
 from godel_engine.rollout import (
+    action_json_prefix,
     classify_action_origin,
     extract_current_solution,
     extract_task_prompt,
@@ -131,12 +133,19 @@ def build_supervised_examples_freeform(
             action_dict["hypothesis"] = action.strategy_patch.hypothesis
             action_dict["target_weaknesses"] = action.strategy_patch.target_weaknesses
         
-        completion = json.dumps(action_dict, indent=2)
+        full_completion = json.dumps(action_dict, indent=2)
+        prefix = action_json_prefix(task_type)
+        if full_completion.startswith(prefix):
+            prompt_text = item["prompt"] + prefix
+            completion = full_completion[len(prefix):]
+        else:
+            prompt_text = item["prompt"]
+            completion = full_completion
         
         examples.append({
-            "prompt": item["prompt"],
+            "prompt": prompt_text,
             "completion": completion,
-            "text": item["prompt"] + completion,
+            "text": prompt_text + completion,
         })
     
     return examples
@@ -145,41 +154,69 @@ def build_supervised_examples_freeform(
 def load_tokenizer():
     from transformers import AutoTokenizer
 
+    model_name = os.getenv("GODEL_BASE_MODEL", "gpt2")
     try:
-        tokenizer = AutoTokenizer.from_pretrained("gpt2", local_files_only=True)
-    except Exception:
-        tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+        logger.info("Loaded tokenizer from local cache: %s", model_name)
+    except Exception as local_exc:
+        logger.warning("Local tokenizer load failed for %s: %s", model_name, local_exc)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        logger.info("Downloaded tokenizer: %s", model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
 
 
-def build_tiny_model(tokenizer, *, max_length: int = 512):
+def build_tiny_model(tokenizer, *, max_length: int = 1536):
     """
     Build a small model for quick training demos.
     
     This is a smaller version of build_freeform_model() for faster iteration.
     For production training, use a larger pre-trained model.
     """
-    from transformers import GPT2Config, GPT2LMHeadModel
+    from transformers import AutoModelForCausalLM, GPT2Config, GPT2LMHeadModel
 
-    config = GPT2Config(
-        vocab_size=tokenizer.vocab_size,
-        n_positions=max_length,
-        n_ctx=max_length,
-        n_embd=256,      # Larger than original tiny model
-        n_layer=4,       # More layers for JSON generation
-        n_head=4,
-        bos_token_id=tokenizer.bos_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id,
-    )
-    model = GPT2LMHeadModel(config)
+    model_name = os.getenv("GODEL_BASE_MODEL", "gpt2")
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_name, local_files_only=True)
+        logger.info("Loaded pretrained causal LM from local cache: %s", model_name)
+    except Exception as local_exc:
+        logger.warning("Local model load failed for %s: %s", model_name, local_exc)
+        try:
+            model = AutoModelForCausalLM.from_pretrained(model_name)
+            logger.info("Downloaded pretrained causal LM: %s", model_name)
+        except Exception as remote_exc:
+            logger.warning(
+                "Falling back to randomly initialized tiny model because pretrained load failed for %s: %s",
+                model_name,
+                remote_exc,
+            )
+            config = GPT2Config(
+                vocab_size=tokenizer.vocab_size,
+                n_positions=max_length,
+                n_ctx=max_length,
+                n_embd=256,
+                n_layer=4,
+                n_head=4,
+                bos_token_id=tokenizer.bos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+            model = GPT2LMHeadModel(config)
+            model.resize_token_embeddings(len(tokenizer))
+            return model
+
+    if getattr(model.config, "n_positions", max_length) < max_length:
+        logger.warning(
+            "Requested max_length=%s exceeds pretrained context window=%s; using model limit.",
+            max_length,
+            getattr(model.config, "n_positions", None),
+        )
     model.resize_token_embeddings(len(tokenizer))
     return model
 
 
-def build_freeform_model(tokenizer, *, max_length: int = 1024):
+def build_freeform_model(tokenizer, *, max_length: int = 2048):
     """
     Build a larger model for FREEFORM mode (actual JSON generation).
     
@@ -189,20 +226,44 @@ def build_freeform_model(tokenizer, *, max_length: int = 1024):
     For production training, consider using a pre-trained model instead
     (e.g., a fine-tuned LLaMA or Mistral variant).
     """
-    from transformers import GPT2Config, GPT2LMHeadModel
+    from transformers import AutoModelForCausalLM, GPT2Config, GPT2LMHeadModel
 
-    config = GPT2Config(
-        vocab_size=tokenizer.vocab_size,
-        n_positions=max_length,
-        n_ctx=max_length,
-        n_embd=384,      # 3x larger embedding
-        n_layer=6,       # 3x more layers
-        n_head=6,        # More attention heads
-        bos_token_id=tokenizer.bos_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.pad_token_id,
-    )
-    model = GPT2LMHeadModel(config)
+    model_name = os.getenv("GODEL_BASE_MODEL", "gpt2")
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_name, local_files_only=True)
+        logger.info("Loaded pretrained causal LM from local cache: %s", model_name)
+    except Exception as local_exc:
+        logger.warning("Local model load failed for %s: %s", model_name, local_exc)
+        try:
+            model = AutoModelForCausalLM.from_pretrained(model_name)
+            logger.info("Downloaded pretrained causal LM: %s", model_name)
+        except Exception as remote_exc:
+            logger.warning(
+                "Falling back to randomly initialized freeform model because pretrained load failed for %s: %s",
+                model_name,
+                remote_exc,
+            )
+            config = GPT2Config(
+                vocab_size=tokenizer.vocab_size,
+                n_positions=max_length,
+                n_ctx=max_length,
+                n_embd=384,
+                n_layer=6,
+                n_head=6,
+                bos_token_id=tokenizer.bos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+            model = GPT2LMHeadModel(config)
+            model.resize_token_embeddings(len(tokenizer))
+            return model
+
+    if getattr(model.config, "n_positions", max_length) < max_length:
+        logger.warning(
+            "Requested max_length=%s exceeds pretrained context window=%s; using model limit.",
+            max_length,
+            getattr(model.config, "n_positions", None),
+        )
     model.resize_token_embeddings(len(tokenizer))
     return model
 
@@ -301,64 +362,80 @@ def run_grpo(
     max_completion_length: int = 128,
     max_new_tokens: int = 128,
     use_cpu: bool = True,
+    generation_mode: str = "freeform",
 ):
+    """
+    Run GRPO training with reward functions.
+    
+    Compatible with TRL 0.15+ (uses reward_funcs for custom reward scoring).
+    """
     import inspect
 
     from datasets import Dataset
     from trl import GRPOConfig, GRPOTrainer
 
-    if "rollout_func" not in inspect.signature(GRPOTrainer.__init__).parameters:
-        raise RuntimeError(
-            "Your installed 'trl' is too old: GRPOTrainer has no 'rollout_func' (needed for GodelEnv). "
-            "Fix: pip install -U 'trl>=0.16.0'"
-        )
-
     from godel_engine.rollout import (
         format_reward_func,
         guard_reward_func,
-        make_freeform_grpo_rollout,
         patch_reward_func,
         score_reward_func,
         task_reward_func,
     )
 
-    rollout_fn = make_freeform_grpo_rollout(max_new_tokens=max_new_tokens)
     comp_len = max(max_completion_length, max_new_tokens)
 
     dataset = Dataset.from_list([{"prompt": item["prompt"]} for item in prompt_data])
-    args = GRPOConfig(
-        output_dir=str(output_dir),
-        per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=1,
-        num_generations=num_generations,
-        max_completion_length=comp_len,
-        max_steps=max_steps,
-        logging_steps=1,
-        save_strategy="no",
-        report_to="none",
-        use_cpu=use_cpu,
-        # Temperature > 0 is essential: it ensures diverse completions
-        # per prompt so reward variance is non-zero and GRPO can learn.
-        generation_kwargs={
+    
+    # Build config with parameters compatible across TRL versions
+    config_kwargs = {
+        "output_dir": str(output_dir),
+        "per_device_train_batch_size": batch_size,
+        "gradient_accumulation_steps": 1,
+        "num_generations": num_generations,
+        "max_completion_length": comp_len,
+        "max_steps": max_steps,
+        "logging_steps": 1,
+        "save_strategy": "no",
+        "report_to": "none",
+    }
+    
+    # Add use_cpu only if supported (older TRL versions)
+    grpo_config_params = inspect.signature(GRPOConfig.__init__).parameters
+    if "use_cpu" in grpo_config_params:
+        config_kwargs["use_cpu"] = use_cpu
+    
+    # Add generation kwargs if supported
+    if "generation_kwargs" in grpo_config_params:
+        config_kwargs["generation_kwargs"] = {
             "temperature": 0.9,
             "top_p": 0.95,
             "do_sample": True,
-        },
-    )
-    trainer = GRPOTrainer(
-        model=model,
-        args=args,
-        processing_class=tokenizer,
-        train_dataset=dataset,
-        rollout_func=rollout_fn,
-        reward_funcs=[
+        }
+    
+    args = GRPOConfig(**config_kwargs)
+    
+    # Build trainer with parameters compatible across TRL versions
+    trainer_params = inspect.signature(GRPOTrainer.__init__).parameters
+    trainer_kwargs = {
+        "model": model,
+        "args": args,
+        "train_dataset": dataset,
+        "reward_funcs": [
             task_reward_func,
             format_reward_func,
             guard_reward_func,
             score_reward_func,
             patch_reward_func,
         ],
-    )
+    }
+    
+    # Handle tokenizer/processing_class parameter name change
+    if "processing_class" in trainer_params:
+        trainer_kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in trainer_params:
+        trainer_kwargs["tokenizer"] = tokenizer
+    
+    trainer = GRPOTrainer(**trainer_kwargs)
     trainer.train()
     return trainer.state.log_history
 
@@ -413,9 +490,11 @@ def evaluate_model_freeform(
         for item in prompt_data:
             env = GodelEnvironment()
             await env.reset(task_type=item["task_type"], task_id=item["task_id"])
+            prefix = action_json_prefix(item["task_type"])
+            generation_prompt = item["prompt"] + prefix
             
             inputs = tokenizer(
-                item["prompt"],
+                generation_prompt,
                 return_tensors="pt",
                 truncation=True,
                 max_length=max_input_length,
@@ -451,7 +530,7 @@ def evaluate_model_freeform(
             # Extract only the generated part
             prompt_length = inputs["input_ids"].shape[1]
             generated_ids = output_ids[0, prompt_length:]
-            completion = tokenizer.decode(generated_ids, skip_special_tokens=True)
+            completion = prefix + tokenizer.decode(generated_ids, skip_special_tokens=True)
             
             # Parse the completion into an action
             action = parse_completion_to_action(

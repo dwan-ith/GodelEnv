@@ -35,9 +35,9 @@ from dotenv import load_dotenv
 
 
 load_dotenv(override=False)
-os.environ.setdefault("WANDB_DISABLED", "true")
-os.environ.setdefault("WANDB_MODE", "disabled")
+# Silence TRL experimental warnings
 os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
+# Note: WANDB is disabled via report_to="none" in training configs, not env vars
 
 
 def _restart_with_utf8_on_windows() -> None:
@@ -72,8 +72,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-prompts", type=int, default=16)
     parser.add_argument("--sft-steps", type=int, default=20)
     parser.add_argument("--grpo-steps", type=int, default=10)
-    parser.add_argument("--max-input-length", type=int, default=512)
-    parser.add_argument("--max-new-tokens", type=int, default=192)
+    parser.add_argument("--max-input-length", type=int, default=768)
+    parser.add_argument("--max-new-tokens", type=int, default=224)
     parser.add_argument(
         "--grading-mode",
         type=str,
