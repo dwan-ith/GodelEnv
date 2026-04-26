@@ -1,5 +1,5 @@
 """
-GodelEnv 2.0 — Recursive Self-Improvement Demo
+GodelEnv — Recursive Self-Improvement Demo
 
 This demo showcases the core recursive self-improvement loop:
 1. Agent observes current strategy + downstream scores + failures
@@ -89,7 +89,7 @@ async def run_recursive_demo(max_episodes: int = 3, steps_per_episode: int = 5):
     from godel_engine.agent import AutoAgent
     from godel_engine.recursive_environment import RecursiveSelfImprovementEnv
 
-    print_banner("GODELENV 2.0 — RECURSIVE SELF-IMPROVEMENT DEMO")
+    print_banner("GODELENV — RECURSIVE SELF-IMPROVEMENT DEMO")
     print("""
   This demo shows the recursive self-improvement loop:
   - Strategy patches are proposed by the agent
@@ -200,7 +200,7 @@ async def run_recursive_demo(max_episodes: int = 3, steps_per_episode: int = 5):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GodelEnv 2.0 Recursive Self-Improvement Demo"
+        description="GodelEnv Recursive Self-Improvement Demo"
     )
     parser.add_argument(
         "--episodes",

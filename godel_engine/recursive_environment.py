@@ -1,5 +1,5 @@
 """
-GodelEnv 2.0 — Recursive Self-Improvement Environment.
+GodelEnv — Recursive Self-Improvement Environment.
 
 This is the refactored core environment where recursive self-improvement is
 the ORGANIZING PRINCIPLE, not just one task among many.

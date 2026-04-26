@@ -37,6 +37,7 @@ def synthetic_factual_reference(prompt: str) -> dict:
     concept_groups: list[tuple[str, ...]] = [(w,) for w in words]
     if not concept_groups:
         concept_groups = [("explanation", "explain"), ("because",), ("conclusion",)]
+    midpoint = max(1, len(concept_groups) // 2)
     n_words = max(len((prompt or "").split()), 1)
     return {
         "agent_generated": True,
@@ -44,6 +45,8 @@ def synthetic_factual_reference(prompt: str) -> dict:
         "prompt": prompt,
         "initial_solution": "",
         "concept_groups": concept_groups,
+        "contrast_left": concept_groups[:midpoint],
+        "contrast_right": concept_groups[midpoint:] or concept_groups[:midpoint],
         "minimum_words": min(40, max(20, n_words // 2)),
         "target_words": min(150, max(60, n_words * 2)),
     }

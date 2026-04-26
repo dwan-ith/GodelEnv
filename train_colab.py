@@ -11,9 +11,9 @@
 # ---
 
 # %% [markdown]
-# # GodelEnv 2.0 - Training Evidence Notebook
+# # GodelEnv - Training Evidence Notebook
 #
-# This notebook runs the same compact-action training pipeline as `train.py`.
+# This notebook runs the same free-form JSON training pipeline as `train.py`.
 # GodelEnv is a recursive self-improvement environment where the agent can either
 # improve the current answer directly or propose a `StrategyPatch` that mutates
 # its own reasoning policy.
@@ -27,8 +27,7 @@
 #
 # Reproducibility notes:
 # - The notebook defaults to deterministic grading and strategy evaluation.
-# - The tiny local model emits compact action tokens that the environment expands
-#   into full actions before verification.
+# - The local model generates complete JSON actions and strategy patches.
 # - For the stronger hybrid path, switch the modes below from `deterministic` to `auto`.
 
 # %%
@@ -39,6 +38,7 @@ import subprocess
 import sys
 
 from dotenv import load_dotenv
+import torch
 
 
 load_dotenv(override=False)
@@ -66,54 +66,10 @@ if _in_colab():
         check=True,
     )
 
-
-def _restart_with_utf8_on_windows() -> None:
-    # TRL reads some packaged templates via Path.read_text() without an explicit
-    # encoding; on Windows this can default to cp1252 and crash with UnicodeDecodeError.
-    # The simplest robust fix for script execution is to restart with UTF-8 mode
-    # enabled. Inside a notebook kernel, restarting via sys.argv exits the cell,
-    # so we skip the restart there.
-    if os.name != "nt":
-        return
-    if os.environ.get("PYTHONUTF8") == "1":
-        return
-    if "ipykernel" in sys.modules:
-        return
-
-    env = os.environ.copy()
-    env["PYTHONUTF8"] = "1"
-    completed = subprocess.run([sys.executable, *sys.argv], env=env, check=False)
-    raise SystemExit(completed.returncode)
-
-
-_restart_with_utf8_on_windows()
-
-
-def _force_utf8_path_reads_on_windows() -> None:
-    if os.name != "nt":
-        return
-    if os.environ.get("PYTHONUTF8") == "1":
-        return
-    if getattr(Path, "_godel_utf8_patch", False):
-        return
-
-    original_read_text = Path.read_text
-
-    def _read_text(self, *args, **kwargs):
-        if not args and "encoding" not in kwargs:
-            kwargs["encoding"] = "utf-8"
-        return original_read_text(self, *args, **kwargs)
-
-    Path.read_text = _read_text
-    Path._godel_utf8_patch = True
-
-
-_force_utf8_path_reads_on_windows()
-
 from godel_engine.rollout import collect_local_prompt_dataset
 from godel_engine.training_support import (
     build_supervised_examples,
-    build_tiny_model,
+    build_freeform_model,
     evaluate_model,
     load_tokenizer,
     plot_before_after,
@@ -128,18 +84,22 @@ from godel_engine.training_support import (
 
 # %%
 TASKS = ["factual_qa", "alignment_qa", "reasoning", "strategy_optimization"]
-NUM_PROMPTS = 16
-SFT_STEPS = 20
-GRPO_STEPS = 10
+NUM_PROMPTS = 32
+SFT_STEPS = 40
+GRPO_STEPS = 12
 MAX_INPUT_LENGTH = 512
-MAX_NEW_TOKENS = 1
+MAX_NEW_TOKENS = 192
+EFFECTIVE_MAX_NEW_TOKENS = max(MAX_NEW_TOKENS, 160)
 OUTPUT_DIR = Path("artifacts/training_run")
 GRADING_MODE = os.getenv("GODEL_GRADING_MODE", "deterministic")
 STRATEGY_EVAL_MODE = os.getenv("GODEL_STRATEGY_EVAL_MODE", "deterministic")
+USE_CPU = not torch.cuda.is_available()
 os.environ["GODEL_GRADING_MODE"] = GRADING_MODE
 os.environ["GODEL_STRATEGY_EVAL_MODE"] = STRATEGY_EVAL_MODE
 print(f"Training config: {NUM_PROMPTS} prompts, {SFT_STEPS} SFT steps, {GRPO_STEPS} GRPO steps")
+print(f"Effective completion length for GRPO/eval: {EFFECTIVE_MAX_NEW_TOKENS} tokens")
 print(f"Modes: grading={GRADING_MODE}, strategy_eval={STRATEGY_EVAL_MODE}")
+print(f"CUDA available: {torch.cuda.is_available()} | using_cpu={USE_CPU}")
 
 
 # %% [markdown]
@@ -160,21 +120,19 @@ for task in TASKS:
 
 
 # %% [markdown]
-# ## 3. Build the Tiny Local Model
+# ## 3. Build the Local Model
 #
-# We use a 2-layer GPT-2 proof-of-concept model for the local CPU run.
-# To keep the action space learnable, the model emits compact action tokens
-# that expand into full environment actions before scoring.
-# For larger-scale training, replace this with Unsloth + a stronger instruct model.
+# We use the same free-form JSON model family as the script path.
+# For larger-scale training, replace this with Unsloth plus a stronger instruct model.
 
 # %%
 tokenizer = load_tokenizer()
-model = build_tiny_model(
+model = build_freeform_model(
     tokenizer,
-    max_length=max(MAX_INPUT_LENGTH + MAX_NEW_TOKENS + 64, 384),
+    max_length=max(MAX_INPUT_LENGTH + EFFECTIVE_MAX_NEW_TOKENS + 64, 1024),
 )
 total_params = sum(parameter.numel() for parameter in model.parameters())
-print(f"Model: GPT-2 tiny ({total_params:,} parameters)")
+print(f"Model: GPT-2 freeform ({total_params:,} parameters)")
 
 
 # %% [markdown]
@@ -185,9 +143,9 @@ baseline_metrics = evaluate_model(
     model,
     tokenizer,
     prompt_data,
-    max_new_tokens=MAX_NEW_TOKENS,
+    max_new_tokens=EFFECTIVE_MAX_NEW_TOKENS,
     max_input_length=MAX_INPUT_LENGTH,
-    policy_mode="random",
+    policy_mode="model",
     seed=42,
 )
 print(
@@ -212,8 +170,7 @@ for episode in baseline_metrics["episodes"][:4]:
 # %% [markdown]
 # ## 5. Warm-Start with Supervised Traces (SFT)
 #
-# The warm start teaches the tiny model the compact action format and the
-# basic alignment between prompt type and action choice.
+# The warm start teaches the model the JSON action schema and grounded teacher traces.
 
 # %%
 sft_logs = run_sft(
@@ -223,8 +180,8 @@ sft_logs = run_sft(
     output_dir=OUTPUT_DIR / "sft",
     max_steps=SFT_STEPS,
     batch_size=1,
-    max_length=MAX_INPUT_LENGTH,
-    use_cpu=True,
+    max_length=MAX_INPUT_LENGTH + EFFECTIVE_MAX_NEW_TOKENS,
+    use_cpu=USE_CPU,
 )
 sft_loss_entries = [item for item in sft_logs if "loss" in item]
 print(f"SFT complete: {len(sft_loss_entries)} steps logged")
@@ -236,9 +193,8 @@ if sft_loss_entries:
 # %% [markdown]
 # ## 6. Refine with Group Relative Policy Optimization (GRPO)
 #
-# GRPO uses the environment reward directly. The local rollout samples among the
-# allowed compact action tokens, expands them into real actions, and updates the
-# policy toward higher-reward choices.
+# GRPO uses the environment reward directly over generated JSON actions and
+# strategy patches.
 
 # %%
 grpo_logs = run_grpo(
@@ -249,9 +205,9 @@ grpo_logs = run_grpo(
     max_steps=GRPO_STEPS,
     batch_size=2,
     num_generations=2,
-    max_completion_length=MAX_NEW_TOKENS,
-    max_new_tokens=MAX_NEW_TOKENS,
-    use_cpu=True,
+    max_completion_length=EFFECTIVE_MAX_NEW_TOKENS,
+    max_new_tokens=EFFECTIVE_MAX_NEW_TOKENS,
+    use_cpu=USE_CPU,
 )
 grpo_reward_entries = [item for item in grpo_logs if "reward" in item]
 print(f"GRPO complete: {len(grpo_reward_entries)} steps logged")
@@ -268,7 +224,7 @@ trained_metrics = evaluate_model(
     model,
     tokenizer,
     prompt_data,
-    max_new_tokens=MAX_NEW_TOKENS,
+    max_new_tokens=EFFECTIVE_MAX_NEW_TOKENS,
     max_input_length=MAX_INPUT_LENGTH,
     policy_mode="model",
     seed=42,

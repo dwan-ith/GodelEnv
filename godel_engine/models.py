@@ -1,7 +1,7 @@
 """
 Typed Pydantic models for the Gödel Engine OpenEnv environment.
 
-GodelEnv 2.0 — Recursive Self-Improvement Architecture.
+GodelEnv — Recursive Self-Improvement Architecture.
 
 The core abstraction is now the **StrategyPatch**: the agent proposes
 mutations to its own reasoning policy, and the Governor accepts or
@@ -66,7 +66,7 @@ class StrategyPatch(BaseModel):
     """
     A proposed mutation to the agent's reasoning strategy.
 
-    This is the fundamental action type in GodelEnv 2.0.
+    This is the fundamental action type in GodelEnv.
     The agent observes its current strategy, recent failure modes, and
     downstream performance, then proposes a patch.
     """
@@ -140,7 +140,7 @@ class GodelAction(BaseModel):
     """
     Action submitted by the agent to the environment.
 
-    In GodelEnv 2.0, the primary action is a StrategyPatch proposal.
+    In GodelEnv, the primary action is a StrategyPatch proposal.
     The legacy `solution` field is still used when the environment runs
     downstream task evaluation to score the strategy.
     """
@@ -190,7 +190,7 @@ class GodelObservation(BaseModel):
     """
     Observation returned by reset() and step().
 
-    In GodelEnv 2.0, this includes the current strategy context and
+    In GodelEnv, this includes the current strategy context and
     recent failure information so the agent can propose informed patches.
     """
     # Episode context
@@ -215,7 +215,7 @@ class GodelObservation(BaseModel):
     # Feedback for the agent
     feedback_summary: str = ""         # Plain-text hint about what to improve
 
-    # ── Strategy context (GodelEnv 2.0) ──
+    # ── Strategy context (GodelEnv) ──
     current_strategy: str = Field(
         default="",
         description="The full text of the current reasoning strategy being used.",
@@ -273,7 +273,7 @@ class GodelState(BaseModel):
     cumulative_reward: float = 0.0
     improvement_trajectory: list[float] = Field(default_factory=list)
 
-    # GodelEnv 2.0 additions
+    # GodelEnv additions
     patches_proposed: int = 0
     patches_accepted: int = 0
     patches_rejected: int = 0
@@ -287,7 +287,7 @@ class RewardBreakdown(BaseModel):
     """
     Independent reward channels for multi-objective RL.
 
-    GodelEnv 2.0 adds generalization, robustness, cost, and stability
+    GodelEnv adds generalization, robustness, cost, and stability
     channels to prevent reward hacking and encourage genuine improvement.
     """
     # Legacy channels (still used for downstream task scoring)
@@ -298,7 +298,7 @@ class RewardBreakdown(BaseModel):
     anti_hack_penalty: float = Field(0.0, description="Penalty from anti-reward-hacking guards")
     process_reward: float = Field(0.0, description="Step-level reasoning quality bonus")
 
-    # GodelEnv 2.0 channels (strategy-level evaluation)
+    # GodelEnv channels (strategy-level evaluation)
     generalization_score: float = Field(
         0.0,
         description="Performance on unseen task instances (held-out generalization).",
@@ -352,7 +352,7 @@ class GodelStepResult(BaseModel):
     truncated: bool = False       # Episode ended by step limit
     info: dict[str, Any] = Field(default_factory=dict)
 
-    # GodelEnv 2.0: the Governor's decision on the latest patch
+    # GodelEnv: the Governor's decision on the latest patch
     patch_decision: Optional[PatchDecision] = Field(
         default=None,
         description="If a strategy patch was proposed, the Governor's verdict.",

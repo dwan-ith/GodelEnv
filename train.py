@@ -1,26 +1,24 @@
 """
 Local Godel Env training pipeline.
 
-This script supports two training modes:
+GodelEnv trains models to generate full JSON action completions, enabling
+genuine end-to-end learning of recursive self-improvement.
 
-1. SYMBOLIC mode (default, fast demo):
-   - Model learns to emit one of ~3 compact action tokens
-   - Tokens expand to handcrafted solutions via heuristic_policy
-   - Evidence quality: PARTIAL - measures policy selection over hardcoded macros
-   - Use for: quick smoke tests, CI, demo runs
+The model learns to:
+1. Generate valid JSON actions with solution, edit_type, and strategy_note
+2. Propose strategy patches with improved_strategy, hypothesis, and target_weaknesses
+3. Demonstrate proposed strategies through concrete task solutions
 
-2. FREEFORM mode (slower, genuine evidence):
-   - Model learns to generate full JSON action completions
-   - No expansion through hardcoded heuristics
-   - Evidence quality: GENUINE - measures actual learned generation
-   - Use for: real training runs, publishable results
+Evidence quality depends on:
+- grading_mode: 'auto' (uses LLM) vs 'deterministic' (uses heuristic graders)
+- strategy_eval_mode: 'auto' (uses LLM) vs 'deterministic' (uses heuristic solvers)
 
 The training path defaults to deterministic grading so the committed evidence is
 reproducible even if stale API credentials are present in the shell. Set
 `--grading-mode auto --strategy-eval-mode auto` to use a configured LLM provider.
 
 For the strongest evidence (genuine recursive self-improvement):
-  python train.py --generation-mode freeform --grading-mode auto --strategy-eval-mode auto
+  python train.py --grading-mode auto --strategy-eval-mode auto
 """
 from __future__ import annotations
 
@@ -75,7 +73,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sft-steps", type=int, default=20)
     parser.add_argument("--grpo-steps", type=int, default=10)
     parser.add_argument("--max-input-length", type=int, default=512)
-    parser.add_argument("--max-new-tokens", type=int, default=1)
+    parser.add_argument("--max-new-tokens", type=int, default=192)
     parser.add_argument(
         "--grading-mode",
         type=str,
@@ -92,12 +90,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--generation-mode",
         type=str,
-        default="symbolic",
-        choices=["symbolic", "freeform"],
+        default="freeform",
+        choices=["freeform"],
         help=(
-            "Generation mode: 'symbolic' trains token classification over ~3 action macros "
-            "(fast, partial evidence); 'freeform' trains actual JSON generation (slower, "
-            "genuine evidence). Default: symbolic."
+            "Generation mode: full JSON action generation. The symbolic macro path "
+            "has been removed from the training pipeline."
         ),
     )
     return parser.parse_args()
@@ -111,10 +108,7 @@ def run(args: argparse.Namespace) -> dict:
     from godel_engine.rollout import collect_local_prompt_dataset
     from godel_engine.training_support import (
         build_freeform_model,
-        build_supervised_examples,
         build_supervised_examples_freeform,
-        build_tiny_model,
-        evaluate_model,
         evaluate_model_freeform,
         load_tokenizer,
         plot_before_after,
@@ -131,7 +125,7 @@ def run(args: argparse.Namespace) -> dict:
     os.environ["GODEL_STRATEGY_EVAL_MODE"] = args.strategy_eval_mode
 
     # Warn about evidence quality based on configuration
-    generation_mode = getattr(args, "generation_mode", "symbolic")
+    generation_mode = getattr(args, "generation_mode", "freeform")
     evidence_quality = warn_evidence_quality(
         generation_mode=generation_mode,
         grading_mode=args.grading_mode,
@@ -152,30 +146,19 @@ def run(args: argparse.Namespace) -> dict:
         seed=42,
     )
     
-    # Build examples and model based on generation mode
-    is_freeform = generation_mode == "freeform"
-    
-    if is_freeform:
-        logger.info("Using FREEFORM mode: training actual JSON generation")
-        supervised_examples = build_supervised_examples_freeform(prompt_data)
-        tokenizer = load_tokenizer()
-        model = build_freeform_model(
-            tokenizer,
-            max_length=max(args.max_input_length + args.max_new_tokens + 256, 1024),
-        )
-        eval_func = evaluate_model_freeform
-        # Freeform needs more tokens to generate JSON
-        effective_max_new_tokens = max(args.max_new_tokens, 256)
-    else:
-        logger.info("Using SYMBOLIC mode: training compact token classification")
-        supervised_examples = build_supervised_examples(prompt_data)
-        tokenizer = load_tokenizer()
-        model = build_tiny_model(
-            tokenizer,
-            max_length=max(args.max_input_length + args.max_new_tokens + 128, 768),
-        )
-        eval_func = evaluate_model
-        effective_max_new_tokens = args.max_new_tokens
+    is_freeform = True
+
+    tokenizer = load_tokenizer()
+    supervised_examples = build_supervised_examples_freeform(prompt_data)
+
+    logger.info("Using freeform JSON generation model")
+    model = build_freeform_model(
+        tokenizer,
+        max_length=max(args.max_input_length + args.max_new_tokens + 256, 1024),
+    )
+    effective_max_new_tokens = max(args.max_new_tokens, 160)
+
+    eval_func = evaluate_model_freeform
 
     baseline_metrics = eval_func(
         model,
@@ -183,7 +166,7 @@ def run(args: argparse.Namespace) -> dict:
         prompt_data,
         max_new_tokens=effective_max_new_tokens,
         max_input_length=args.max_input_length,
-        policy_mode="random",
+        policy_mode="model",
         seed=42,
     )
     logger.info(
@@ -203,8 +186,7 @@ def run(args: argparse.Namespace) -> dict:
         }
 
     logger.info("Running SFT warm start")
-    # For freeform, we need longer max_length to fit JSON completions
-    sft_max_length = args.max_input_length + effective_max_new_tokens if is_freeform else args.max_input_length
+    sft_max_length = args.max_input_length + effective_max_new_tokens
     sft_logs = run_sft(
         model,
         tokenizer,
@@ -228,7 +210,6 @@ def run(args: argparse.Namespace) -> dict:
         max_completion_length=effective_max_new_tokens,
         max_new_tokens=effective_max_new_tokens,
         use_cpu=True,
-        generation_mode=generation_mode,
     )
 
     trained_metrics = eval_func(
@@ -281,7 +262,7 @@ def run(args: argparse.Namespace) -> dict:
             "structured_action_rate_delta": trained_metrics.get("structured_action_rate", 0.0)
             - baseline_metrics.get("structured_action_rate", 0.0),
             "json_action_rate_delta": trained_metrics.get("json_action_rate", 0.0)
-            - baseline_metrics.get("json_action_rate", 0.0) if is_freeform else None,
+            - baseline_metrics.get("json_action_rate", 0.0),
             "patch_rate_delta": trained_metrics.get("strategy_patch_rate", 0.0)
             - baseline_metrics.get("strategy_patch_rate", 0.0),
             "patch_acceptance_delta": trained_metrics.get("patch_acceptance_rate", 0.0)

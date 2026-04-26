@@ -1,7 +1,7 @@
 """
-Training and rollout helpers for Gödel Env 2.0.
+Training and rollout helpers for Gödel Env.
 
-GodelEnv 2.0: The rollout system now supports two modes:
+GodelEnv: The rollout system now supports two modes:
 1. Strategy-patch mode: prompts include strategy context, completions are
    parsed as StrategyPatch proposals, rewards come from Governor decisions.
 2. Legacy answer-improvement mode: backward-compatible with existing
@@ -18,12 +18,6 @@ from typing import Any, Dict, List, Optional
 from godel_engine.async_utils import run_async
 from godel_engine.environment import GodelEnvironment
 from godel_engine.models import EditType, GodelAction, StrategyPatch
-from godel_engine.symbolic_actions import (
-    ACTION_DESCRIPTIONS,
-    allowed_action_tokens,
-    build_action_from_token,
-    find_action_token,
-)
 
 
 logger = logging.getLogger("godel_env.rollout")
@@ -59,6 +53,18 @@ def _extract_json_blob(text: str) -> str | None:
     end = stripped.rfind("}")
     if start >= 0 and end > start:
         return stripped[start : end + 1]
+    return None
+
+
+def _attempt_structured_repair(text: str) -> str | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if '"solution"' in stripped and not stripped.startswith("{"):
+        candidate = "{\n" + stripped
+        if not candidate.rstrip().endswith("}"):
+            candidate = candidate.rstrip() + "\n}"
+        return candidate
     return None
 
 
@@ -103,15 +109,16 @@ def parse_completion_to_action(
 ) -> GodelAction:
     """Parse a model completion into an action object.
 
-    GodelEnv 2.0: if the JSON contains an 'improved_strategy' key,
-    we parse it as a StrategyPatch proposal.
+    GodelEnv: The model generates full JSON completions, not compact tokens.
+    This function parses JSON actions and extracts strategy patches when present.
+    No symbolic action fallback - the model must learn to generate valid JSON.
     """
-    blob = _extract_json_blob(completion)
+    blob = _extract_json_blob(completion) or _attempt_structured_repair(completion)
     if blob is not None:
         try:
             data = json.loads(blob)
 
-            # GodelEnv 2.0: detect strategy patch proposals
+            # GodelEnv: detect strategy patch proposals
             if "improved_strategy" in data:
                 patch = StrategyPatch(
                     improved_strategy=str(data["improved_strategy"]),
@@ -126,28 +133,19 @@ def parse_completion_to_action(
                     strategy_patch=patch,
                 )
 
-            # Legacy answer-improvement parsing
+            # Standard answer-improvement parsing
             solution = data.get("solution", completion)
             edit_type = str(data.get("edit_type", "rewrite")).upper()
-            strategy_note = str(data.get("strategy_note", "RL rollout"))
+            strategy_note = str(data.get("strategy_note", "Generated action"))
             return GodelAction(
                 solution=str(solution),
                 edit_type=EditType[edit_type] if edit_type in EditType.__members__ else EditType.REWRITE,
                 strategy_note=strategy_note,
             )
         except Exception:
-            logger.debug("Falling back to raw completion after JSON parse failure.")
+            logger.debug("JSON parse failed, using raw completion as solution.")
 
-    action_token = find_action_token(completion)
-    if action_token and task_type:
-        return build_action_from_token(
-            action_token,
-            task_prompt=task_prompt,
-            task_type=task_type,
-            current_solution=current_solution,
-            strategy_text=strategy_text,
-        )
-
+    # Extract code blocks if present (common output format)
     code_match = re.search(r"```(?:python|json)?\s*\n?(.*?)```", completion, re.DOTALL)
     if code_match:
         return GodelAction(
@@ -156,11 +154,22 @@ def parse_completion_to_action(
             strategy_note="Extracted from fenced block",
         )
 
+    # Use raw completion as solution (no symbolic token expansion)
     return GodelAction(
         solution=completion.strip(),
         edit_type=EditType.REWRITE,
         strategy_note="Raw completion used as solution",
     )
+
+
+def classify_action_origin(action: GodelAction) -> str:
+    if action.strategy_patch is not None:
+        return "json_patch"
+    if action.strategy_note == "Extracted from fenced block":
+        return "code_block"
+    if action.strategy_note == "Raw completion used as solution":
+        return "raw_text"
+    return "json_direct"
 
 
 def parse_prompt_metadata(prompt: str) -> dict[str, str]:
@@ -186,14 +195,14 @@ def build_prompt(
 ) -> str:
     """Build the model prompt used for training and inference.
 
-    GodelEnv 2.0: prompts now include strategy context so the model
-    can propose informed strategy patches.
+    GodelEnv: prompts instruct the model to generate full JSON actions,
+    not compact action tokens. This enables genuine end-to-end learning.
     """
     meta = ""
     if task_type and task_id:
         meta = f"<godel_meta>\ntask_type={task_type}\ntask_id={task_id}\n</godel_meta>\n\n"
 
-    # GodelEnv 2.0: strategy context block
+    # GodelEnv: strategy context block
     strategy_block = ""
     if strategy_text:
         strategy_block = (
@@ -207,16 +216,32 @@ def build_prompt(
             failures_text = "\n".join(f"- {f}" for f in recent_failures[-3:])
             strategy_block += f"RECENT FAILURES:\n{failures_text}\n\n"
 
-    preferred_mode = (
-        "For this task, prefer a strategy patch over a direct answer unless the current strategy is already stronger than the mutation you can propose.\n\n"
-        if task_type == "strategy_optimization"
-        else ""
-    )
-    action_tokens = allowed_action_tokens(task_type)
-    action_menu = "\n".join(
-        f"  - {token}: {ACTION_DESCRIPTIONS[token]}"
-        for token in action_tokens
-    )
+    # Strategy optimization tasks should produce strategy patches
+    if task_type == "strategy_optimization":
+        output_instruction = (
+            "Generate a JSON action that proposes an improved reasoning strategy.\n"
+            "Use this exact field order and respond with JSON only:\n"
+            "{\n"
+            '  "solution": "demonstrate the improved strategy on the task",\n'
+            '  "edit_type": "rewrite",\n'
+            '  "strategy_note": "what weakness this patch addresses",\n'
+            '  "improved_strategy": "the complete revised strategy text",\n'
+            '  "diff_description": "what changed from the current strategy",\n'
+            '  "hypothesis": "why this should improve held-out performance",\n'
+            '  "target_weaknesses": ["weakness 1", "weakness 2"]\n'
+            "}\n"
+        )
+    else:
+        output_instruction = (
+            "Generate a JSON action and respond with JSON only.\n"
+            "Use this exact field order:\n"
+            "{\n"
+            '  "solution": "your complete solution to the task",\n'
+            '  "edit_type": "rewrite",\n'
+            '  "strategy_note": "brief explanation of your approach"\n'
+            "}\n"
+        )
+
     strategy_digest = _strategy_digest(strategy_text) if strategy_text else "n/a"
     score_digest = ", ".join(
         f"{name}={value:.2f}" for name, value in sorted((downstream_scores or {}).items())
@@ -225,17 +250,16 @@ def build_prompt(
 
     return (
         f"{meta}"
-        "Choose exactly one action token for this GodelEnv state.\n"
-        "ACTION MENU:\n"
-        f"{action_menu}\n\n"
-        f"{preferred_mode}"
+        "You are an agent in GodelEnv, a recursive self-improvement environment.\n\n"
+        f"{strategy_block}"
         f"TASK:\n{task_prompt}\n\n"
         f"CURRENT SOLUTION:\n{current_solution}\n\n"
         f"STRATEGY DIGEST: {strategy_digest}\n"
         f"DOWNSTREAM SCORES: {score_digest or 'n/a'}\n"
         f"RECENT FAILURES: {failure_digest or 'n/a'}\n\n"
         f"LATEST FEEDBACK:\n{rubric_feedback}\n\n"
-        "ACTION TOKEN:\n"
+        f"{output_instruction}\n"
+        "Respond with valid JSON only:\n"
     )
 
 
@@ -249,7 +273,7 @@ def extract_reward_channels(step_result) -> Dict[str, float]:
         "process_reward": breakdown.process_reward,
         "total_reward": breakdown.total,
         "env_score": step_result.observation.total_score,
-        # GodelEnv 2.0 channels
+        # GodelEnv channels
         "generalization_score": breakdown.generalization_score,
         "robustness_score": breakdown.robustness_score,
         "patch_quality": breakdown.patch_quality,
@@ -262,8 +286,10 @@ def collect_local_prompt_dataset(
     num_prompts: int = 32,
     tasks: Optional[List[str]] = None,
     seed: int = 42,
-) -> List[Dict[str, str]]:
+) -> List[Dict[str, Any]]:
     """Collect reset states from the local deterministic environment."""
+    # The dataset includes prompt text plus task metadata/reference objects used
+    # for reference-grounded teacher traces during local training.
     env = GodelEnvironment(seed=seed)
     task_names = tasks or list(env.tasks.keys())
     dataset: List[Dict[str, str]] = []
@@ -300,6 +326,7 @@ def collect_local_prompt_dataset(
                     "strategy_id": obs.strategy_id,
                     "downstream_scores": dict(obs.downstream_scores),
                     "recent_failures": list(obs.recent_failures),
+                    "reference": getattr(env.current_instance, "reference", None),
                 }
             )
 
@@ -307,102 +334,21 @@ def collect_local_prompt_dataset(
     return dataset
 
 
-def make_local_grpo_rollout(max_new_tokens: int = 512):
-    """Create a rollout function that scores completions on matching local task instances."""
-
-    def rollout_func(prompts: List[str], trainer) -> Dict[str, Any]:
-        tokenizer = trainer.processing_class
-        torch = __import__("torch")
-
-        inputs = tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=2048,
-        )
-        inputs = {key: value.to(trainer.model.device) for key, value in inputs.items()}
-
-        with torch.no_grad():
-            model_outputs = trainer.model(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs.get("attention_mask"),
-            )
-
-        attention_mask = inputs.get("attention_mask")
-        if attention_mask is None:
-            prompt_lengths = [inputs["input_ids"].shape[1]] * len(prompts)
-        else:
-            prompt_lengths = attention_mask.sum(dim=1).tolist()
-
-        completion_ids_out: list[list[int]] = []
-        logprobs_out: list[list[float]] = []
-        completions: list[str] = []
-        logits_all = model_outputs.logits
-
-        for i, prompt in enumerate(prompts):
-            meta = parse_prompt_metadata(prompt)
-            action_ids = [
-                tokenizer.convert_tokens_to_ids(token)
-                for token in allowed_action_tokens(meta["task_type"])
-            ]
-            prompt_len = int(prompt_lengths[i])
-            next_token_logits = logits_all[i, prompt_len - 1, :]
-            full_log_probs = torch.log_softmax(next_token_logits, dim=-1)
-
-            filtered_logits = next_token_logits[action_ids] / 0.9
-            filtered_probs = torch.softmax(filtered_logits, dim=-1)
-            sampled_index = torch.multinomial(filtered_probs, num_samples=1).item()
-            chosen_token_id = int(action_ids[sampled_index])
-
-            completion_ids_out.append([chosen_token_id])
-            logprobs_out.append([float(full_log_probs[chosen_token_id].item())])
-            completions.append(
-                tokenizer.decode([chosen_token_id], skip_special_tokens=False)
-            )
-
-        all_rewards = {
-            "task_score_delta": [],
-            "format_compliance": [],
-            "anti_hack_penalty": [],
-            "process_reward": [],
-            "env_score": [],
-            "patch_quality": [],
-        }
-
-        async def _step_all() -> None:
-            for prompt, completion in zip(prompts, completions):
-                env = GodelEnvironment()
-                try:
-                    meta = parse_prompt_metadata(prompt)
-                    task_prompt = extract_task_prompt(prompt)
-                    current_solution = extract_current_solution(prompt)
-                    await env.reset(task_type=meta["task_type"], task_id=meta["task_id"])
-                    action = parse_completion_to_action(
-                        completion,
-                        task_prompt=task_prompt,
-                        task_type=meta["task_type"],
-                        current_solution=current_solution,
-                    )
-                    result = await env.step(action)
-                    channels = extract_reward_channels(result)
-                    for key in all_rewards:
-                        all_rewards[key].append(channels.get(key, 0.0))
-                except Exception as exc:
-                    logger.warning("Rollout step failed: %s", exc)
-                    for key in all_rewards:
-                        all_rewards[key].append(0.0)
-
-        run_async(_step_all())
-
-        return {
-            "prompt_ids": inputs["input_ids"].tolist(),
-            "completion_ids": completion_ids_out,
-            "logprobs": logprobs_out,
-            **all_rewards,
-        }
-
-    return rollout_func
+def make_local_grpo_rollout(max_new_tokens: int = 256):
+    """
+    Create a rollout function that generates full JSON completions.
+    
+    DEPRECATED: This function now behaves identically to make_freeform_grpo_rollout.
+    The old symbolic-action approach has been removed in favor of genuine generation.
+    Use make_freeform_grpo_rollout directly for clarity.
+    """
+    import warnings
+    warnings.warn(
+        "make_local_grpo_rollout is deprecated. Use make_freeform_grpo_rollout instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return make_freeform_grpo_rollout(max_new_tokens=max_new_tokens)
 
 
 def make_freeform_grpo_rollout(max_new_tokens: int = 256):
@@ -502,6 +448,14 @@ def make_freeform_grpo_rollout(max_new_tokens: int = 256):
                     )
                     result = await env.step(action)
                     channels = extract_reward_channels(result)
+                    origin = classify_action_origin(action)
+                    if origin == "json_patch":
+                        channels["format_compliance"] = channels.get("format_compliance", 0.0) + 0.08
+                        channels["patch_quality"] = channels.get("patch_quality", 0.0) + 0.03
+                    elif origin == "json_direct":
+                        channels["format_compliance"] = channels.get("format_compliance", 0.0) + 0.05
+                    elif origin == "code_block":
+                        channels["format_compliance"] = channels.get("format_compliance", 0.0) + 0.02
                     for key in all_rewards:
                         all_rewards[key].append(channels.get(key, 0.0))
                 except Exception as exc:
@@ -539,7 +493,7 @@ def score_reward_func(prompts: List[str], completions: List[str], **kwargs) -> L
 
 
 def patch_reward_func(prompts: List[str], completions: List[str], **kwargs) -> List[float]:
-    """GodelEnv 2.0: reward for strategy patch quality."""
+    """GodelEnv: reward for strategy patch quality."""
     return kwargs.get("patch_quality", [0.0] * len(completions))
 
 

@@ -1,7 +1,7 @@
 """
 Anti-Reward-Hacking Guards for Godel Env.
 
-GodelEnv 2.0: Structural anti-hacking is central. A fake "recursive
+GodelEnv: Structural anti-hacking is central. A fake "recursive
 self-improver" will otherwise just overfit the judge.
 
 Guard layers:
@@ -140,7 +140,7 @@ def empty_solution_guard(
 
 
 # ---------------------------------------------------------------------------
-# Strategy-level guards (GodelEnv 2.0 — patch acceptance)
+# Strategy-level guards (GodelEnv — patch acceptance)
 # ---------------------------------------------------------------------------
 
 def strategy_regression_gate(

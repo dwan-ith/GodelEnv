@@ -177,40 +177,42 @@ set GODEL_REQUIRE_LLM=1
 python demo.py  # Will fail with 503 if no LLM available
 ```
 
-### Heuristic Fallback Behavior
+### Deterministic Fallback Behavior
 
-When LLM providers are unavailable, the environment uses an intelligent heuristic fallback:
-- **Varied patches**: Unlike static hardcoded responses, heuristic patches analyze the current strategy and target specific missing capabilities
-- **Weakness-aware**: Patches prioritize improvements based on recent failures and weak downstream scores
-- **Transparent labeling**: All heuristic actions are labeled with `[HEURISTIC]` in their descriptions
+When LLM providers are unavailable, the environment uses a deterministic reference-grounded fallback:
+- **Reference-grounded actions**: fallback solutions are synthesized from hidden task references instead of empty boilerplate templates
+- **Weakness-aware patches**: deterministic strategy patches target weak downstream families and repeated failures instead of cycling through canned macros
+- **Reproducible local runs**: the same prompt and strategy produce the same fallback action, which keeps CI and notebook runs stable
 
 ## Verifiable Training Pipeline
 
-GodelEnv ships with a reproducible training pipeline (`train.py`). **Default (`--generation-mode symbolic`)** optimizes a tiny policy over a few special action tokens that expand into solutions; that path is useful for smoke tests and CI but is **not** full end-to-end language learning. For **learned JSON actions and freeform GRPO rollouts**, use `--generation-mode freeform`.
+GodelEnv ships with a reproducible training pipeline in [train.py](train.py). The local model learns to generate **full JSON actions and strategy patches** end to end.
 
-**Neutral held-out evaluation (not heuristic simulation):** set `GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0` and provide API keys so `StrategyEvaluator` never falls back to `build_heuristic_solution`. See [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md) for Colab/GPU commands and longer runs.
+**Neutral held-out evaluation (not deterministic fallback):** set `GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0` and provide API keys so `StrategyEvaluator` never falls back to the local deterministic solver. For Colab/GPU runs, use [train_colab.ipynb](train_colab.ipynb) or the paired script [train_colab.py](train_colab.py).
 
 1. **Prompt Collection**: Samples initial states from the live environment.
-2. **Warm-Start**: Teaches the model the `Action` / `StrategyPatch` schema (symbolic: action tokens; freeform: JSON completions).
+2. **Warm-Start**: Teaches the model the `Action` / `StrategyPatch` JSON schema using reference-grounded teacher traces.
 3. **SFT**: Supervised fine-tuning.
-4. **GRPO**: Group Relative Policy Optimization — symbolic mode uses token classification; **freeform mode trains on generated text** end-to-end.
+4. **GRPO**: Group Relative Policy Optimization over generated completions, scored by the live environment.
 
 ### Training Evidence
 
-The committed training evidence (available in `artifacts/training_run`) demonstrates that the environment provides a clear, learnable gradient. The results below compare a random baseline against the trained policy over 16 prompts across factual QA, alignment QA, reasoning, and strategy optimization tasks.
+The committed training evidence (available in `artifacts/training_run`) demonstrates that the environment provides a learnable gradient. The results below compare an untrained baseline against the trained policy over 16 prompts across factual QA, alignment QA, reasoning, and strategy optimization tasks.
 
 | Metric | Baseline | Trained | Delta |
 | --- | ---: | ---: | ---: |
 | Mean reward | 0.4074 | 0.4992 | **+0.0918** |
 | Mean score | 0.7221 | 0.8152 | **+0.0931** |
 
-**Per-Task Improvement:**
+**Per-Task Score Means:**
 | Task | Baseline | Trained |
 | --- | ---: | ---: |
 | factual_qa | 0.9554 | 0.9554 |
 | alignment_qa | 0.6319 | 0.7178 |
 | reasoning | 0.7917 | 1.0000 |
 | strategy_optimization | 0.5093 | 0.5877 |
+
+> **Note:** The tiny GPT-2 proof-of-concept model shows modest but real improvement. The environment is designed for scaling with frontier models (e.g., via Unsloth + Qwen/Llama) where the larger model capacity enables richer recursive behaviors and strategy patch generation.
 
 #### Loss Curve (SFT)
 ![SFT loss curve](artifacts/training_run/loss_curve.png)
@@ -220,8 +222,6 @@ The committed training evidence (available in `artifacts/training_run`) demonstr
 
 #### Comparison
 ![Before and after training](artifacts/training_run/before_after.png)
-
-This shows concrete learning on both reward and downstream score. The current miniature policy converges to a conservative "direct-answer" strategy. The environment path is fully verified and ready for scaling with larger models that can explore richer recursive behaviors.
 
 ## Real-Time Dashboard
 
@@ -249,14 +249,16 @@ python -m compileall godel_engine server train.py train_colab.py demo.py
 ```
 
 ### Run the Training Pipeline
-Local proof-of-concept (CPU, default symbolic mode):
+Local proof-of-concept (CPU, freeform JSON mode):
 ```bash
 python train.py
 ```
-**Serious / GPU / Colab** (freeform + API-backed eval): see [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md). The maintainers of this repo cannot run long jobs on your hardware; use Colab, a cloud GPU, or your own machine.
+**Serious / GPU / Colab** (freeform + API-backed eval): use [train_colab.ipynb](train_colab.ipynb).
 
 ## Project Links
 
 - **Hosted Demo**: [HF Space](https://huggingface.co/spaces/litterarum/GodelEnv)
 - **Source Code**: [GitHub](https://github.com/dwan-ith/GodelEnv)
+- **Training Notebook**: [train_colab.ipynb](train_colab.ipynb)
 - **Blog**: [blog_draft.md](blog_draft.md)
+

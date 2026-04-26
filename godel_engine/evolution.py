@@ -1,7 +1,7 @@
 """
 Core Gödel Engine Logic — Strategy Registry, Governor, and Evolutionary Layers.
 
-GodelEnv 2.0: Self-modification is explicit. Improvement proposals are testable.
+GodelEnv: Self-modification is explicit. Improvement proposals are testable.
 Acceptance depends on objective evidence, not vibes.
 
 - StrategyRegistry: stores accepted strategies with full lineage, Elo ratings,

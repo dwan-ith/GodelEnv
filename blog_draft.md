@@ -53,20 +53,18 @@ Live LLM inference is inherently volatile. GodelEnv implements a hybrid runtime 
 
 A significant challenge in building this environment was establishing a verifiable training pipeline. Typical local proof-of-concepts often struggle because tiny models (e.g., GPT-2) fail to emit the long, complex JSON required for strategy patches.
 
-GodelEnv solves this via a compact local policy:
-1. The tiny local model is trained to emit a compact action token (e.g., "direct best" or "balanced patch").
-2. The environment expands that token into a full, semantically valid environment action.
-3. The environment's verifier evaluates the expanded action.
+GodelEnv uses a freeform JSON generation pipeline:
+1. The local model is trained via SFT on reference-grounded teacher traces that demonstrate the JSON action schema.
+2. GRPO (Group Relative Policy Optimization) then refines the policy using the environment's live reward signal over generated completions.
+3. The environment's verifier evaluates the generated JSON actions directly.
 
-This approach allows researchers to run the full SFT and GRPO (Group Relative Policy Optimization) pipeline locally on CPU, verifying the environment's mechanics without requiring massive GPU clusters.
+This approach allows researchers to run the full SFT → GRPO pipeline locally on CPU, verifying the environment's mechanics without requiring massive GPU clusters. For serious training runs, the same pipeline scales to GPU via the Colab notebook.
 
 ## Evidence of Learning
 
-The true test of any RL environment is whether an agent can extract a learnable gradient from it. Our baseline training runs (available in the repository's artifacts) demonstrate precisely this.
+The true test of any RL environment is whether an agent can extract a learnable gradient from it. The baseline training runs (committed in `artifacts/training_run/`) demonstrate this with loss curves, reward curves, and before/after comparisons.
 
-Evaluating a local proof-of-concept across a suite of factual QA, alignment QA, reasoning, and strategy optimization tasks yields clear improvement:
-- **Mean Reward**: Improved from `0.4090` to `0.5224`
-- **Mean Score**: Improved from `0.7361` to `0.8384`
+Evaluating the local proof-of-concept across factual QA, alignment QA, reasoning, and strategy optimization tasks yields measurable reward improvement (see `artifacts/training_run/metrics.json` and the plots committed to the repository for exact numbers).
 
 The data confirms that the environment mechanics are sound, the verification loop is stable, and the multi-channel reward provides a practical optimization target.
 

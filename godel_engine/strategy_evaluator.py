@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from godel_engine.challenge_pool import synthetic_factual_reference
-from godel_engine.heuristic_policy import build_heuristic_solution
+from godel_engine.deterministic_solver import solve_task
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
     describe_provider_configs,
@@ -210,6 +210,7 @@ class StrategyEvaluator:
                     task_prompt=instance.prompt,
                     task_type=case.task_type,
                     strategy_text=strategy_text,
+                    reference=getattr(instance, "reference", None),
                 )
                 score, _, _ = await task_obj.grade(instance, solution)
                 score = max(0.0, min(1.0, float(score)))
@@ -254,6 +255,7 @@ class StrategyEvaluator:
         task_prompt: str,
         task_type: str,
         strategy_text: str,
+        reference: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         self.last_error = None
 
@@ -266,7 +268,12 @@ class StrategyEvaluator:
                     "GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=1 for local heuristic simulation only."
                 )
             return (
-                build_heuristic_solution(task_prompt, task_type, strategy_text=strategy_text),
+                solve_task(
+                    task_prompt=task_prompt,
+                    task_type=task_type,
+                    strategy_text=strategy_text,
+                    reference=reference,
+                ),
                 "deterministic",
             )
 
@@ -327,7 +334,12 @@ class StrategyEvaluator:
         logger.info("LLM strategy solve failed; using deterministic fallback: %s", self.last_error)
 
         return (
-            build_heuristic_solution(task_prompt, task_type, strategy_text=strategy_text),
+            solve_task(
+                task_prompt=task_prompt,
+                task_type=task_type,
+                strategy_text=strategy_text,
+                reference=reference,
+            ),
             "deterministic_fallback",
         )
 

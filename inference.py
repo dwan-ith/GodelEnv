@@ -1,7 +1,6 @@
 """
 Inference Script Example for GodelEnv
-=====================================
-Strictly complies with the Hackathon Output formatting.
+
 """
 
 import asyncio

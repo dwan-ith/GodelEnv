@@ -1,5 +1,5 @@
 """
-Core Gödel Env 2.0 Environment.
+Core Gödel Env Environment.
 
 The fundamental loop is now recursive self-improvement:
   1. Agent observes current strategy + downstream performance + failures + budget
@@ -112,7 +112,7 @@ class GodelEnvironment:
         self.current_strategy: Optional[Strategy] = None
         self.episode_difficulty = ""
 
-        # GodelEnv 2.0 state
+        # GodelEnv state
         self.patches_proposed = 0
         self.patches_accepted = 0
         self.patches_rejected = 0
@@ -205,7 +205,7 @@ class GodelEnvironment:
         """
         Submit an action and receive a graded result.
 
-        GodelEnv 2.0 dual-mode:
+        GodelEnv dual-mode:
         - If action.strategy_patch is provided, this is a strategy-level step:
           the environment evaluates parent vs child on downstream tasks.
         - Otherwise, this is a legacy answer-improvement step.
@@ -215,7 +215,7 @@ class GodelEnvironment:
 
         self.step_count += 1
 
-        # ── Strategy-level step (GodelEnv 2.0 primary mode) ──
+        # ── Strategy-level step (GodelEnv primary mode) ──
         if action.strategy_patch is not None:
             return await self._strategy_step(action)
 
@@ -634,7 +634,7 @@ class GodelEnvironment:
             f"{name}: {text}" for name, text in feedback.items()
         )
 
-        # Strategy context for GodelEnv 2.0
+        # Strategy context for GodelEnv
         strategy_text = self.current_strategy.policy_text if self.current_strategy else ""
         strategy_id = self.current_strategy.id if self.current_strategy else ""
         strategy_gen = self.current_strategy.generation if self.current_strategy else 0
@@ -659,7 +659,7 @@ class GodelEnvironment:
             max_steps=self.max_steps,
             improvement_history=list(self.improvement_history),
             feedback_summary=feedback_summary,
-            # GodelEnv 2.0 fields
+            # GodelEnv fields
             current_strategy=strategy_text,
             strategy_id=strategy_id,
             strategy_generation=strategy_gen,

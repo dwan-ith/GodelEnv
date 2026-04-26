@@ -150,8 +150,8 @@ async def run_baseline(
     env = GodelEnvironment(seed=seed)
     agent = AutoAgent()
 
-    if not agent.api_key:
-        logger.warning("No API key found in .env — agent will return no-op actions.")
+    if not agent.clients:
+        logger.warning("No API clients configured — agent will return no-op actions.")
 
     all_results = []
     t0 = time.time()

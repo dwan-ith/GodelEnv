@@ -1,5 +1,5 @@
 """
-Gödel Engine 2.0 — Recursive Self-Improvement Under Verifier-Backed Meta-Evaluation
+Gödel Engine — Recursive Self-Improvement Under Verifier-Backed Meta-Evaluation
 
 An OpenEnv-compatible environment where the agent proposes, tests, and
 selectively adopts self-modifications to its own reasoning strategies.
@@ -56,7 +56,7 @@ __all__ = [
     "GodelStepResult",
     "RewardBreakdown",
     "EditType",
-    # GodelEnv 2.0: Strategy self-improvement
+    # GodelEnv: Strategy self-improvement
     "StrategyPatch",
     "PatchDecision",
     "Strategy",
