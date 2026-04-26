@@ -290,6 +290,7 @@ def test_load_provider_configs_keeps_provider_groups_separate(monkeypatch) -> No
     monkeypatch.delenv("HUGGINGFACEHUB_API_TOKEN", raising=False)
     monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
     monkeypatch.delenv("HF_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("GODEL_PROVIDER_ORDER", "custom,openai")
 
     configs = load_provider_configs()
     assert [config.name for config in configs][:2] == ["custom", "openai"]
