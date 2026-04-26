@@ -201,63 +201,61 @@ document.addEventListener("DOMContentLoaded", () => {
             );
             
             if (isPatch) {
-                if (childStrategy) childStrategy.innerText = stepResult.action.strategy_patch.improved_strategy || "Empty patch.";
+                const improvedStrategy = stepResult.action.strategy_patch?.improved_strategy;
+                if (childStrategy) {
+                    childStrategy.innerText = improvedStrategy || "(Patch proposed — no improved_strategy text returned by model)";
+                }
+                // Don't write N/A here — set below based on patchDecision
             } else {
                 if (childStrategy) childStrategy.innerHTML = '<div class="empty">No patch proposed in this step.</div>';
                 if (utilityComparison) utilityComparison.innerHTML = '<div class="empty">N/A</div>';
             }
-            
+
             if (patchDecision) {
                 const verdict = patchDecision.accepted ? "ACCEPTED" : "REJECTED";
                 logSystem(
                     `Governor ${verdict}: utility ` +
-                    `${patchDecision.parent_utility.toFixed(3)} -> ` +
-                    `${patchDecision.child_utility.toFixed(3)} ` +
-                    `(Δ ${patchDecision.improvement.toFixed(3)})`
+                    `${(patchDecision.parent_utility ?? 0).toFixed(3)} -> ` +
+                    `${(patchDecision.child_utility ?? 0).toFixed(3)} ` +
+                    `(Δ ${(patchDecision.improvement ?? 0).toFixed(3)})`
                 );
                 if (!patchDecision.accepted && patchDecision.rejection_reasons?.length) {
                     logSystem(`Rejection reasons: ${patchDecision.rejection_reasons.join("; ")}`);
                 }
-                
-                // Render utility comparison
+
                 if (utilityComparison) {
-                    const deltaClass = patchDecision.improvement > 0 ? "delta-pos" : (patchDecision.improvement < 0 ? "delta-neg" : "delta-neu");
-                    const sign = patchDecision.improvement > 0 ? "+" : "";
-                    
+                    const imp = patchDecision.improvement ?? 0;
+                    const deltaClass = imp > 0 ? "delta-pos" : (imp < 0 ? "delta-neg" : "delta-neu");
+                    const sign = imp > 0 ? "+" : "";
                     let html = `
-                    <div class="utility-board" style="padding: 1rem;">
-                        <div style="font-weight: bold; margin-bottom: 1rem; color: ${patchDecision.accepted ? '#00ff88' : '#ff3e3e'};">
+                    <div class="utility-board" style="padding:1rem">
+                        <div style="font-weight:bold;margin-bottom:1rem;color:${patchDecision.accepted ? '#00ff88' : '#ff3e3e'}">
                             VERDICT: ${verdict}
                         </div>
                         <div class="utility-scores-grid">
                             <div class="utility-score-card">
                                 <div class="label">PARENT UTILITY</div>
-                                <div class="value">${patchDecision.parent_utility.toFixed(3)}</div>
+                                <div class="value">${(patchDecision.parent_utility ?? 0).toFixed(3)}</div>
                             </div>
                             <div class="utility-score-card">
                                 <div class="label">CHILD UTILITY</div>
-                                <div class="value">${patchDecision.child_utility.toFixed(3)}</div>
+                                <div class="value">${(patchDecision.child_utility ?? 0).toFixed(3)}</div>
                             </div>
                         </div>
-                        
                         <div class="utility-delta">
-                            NET IMPROVEMENT: <span class="${deltaClass}">${sign}${patchDecision.improvement.toFixed(3)}</span>
-                        </div>
-                    `;
-                    
+                            NET IMPROVEMENT: <span class="${deltaClass}">${sign}${imp.toFixed(3)}</span>
+                        </div>`;
                     if (patchDecision.rejection_reasons?.length > 0) {
-                        html += `
-                            <div class="rejection-reasons-box">
-                                <div class="title">REJECTION REASONS:</div>
-                                <ul>
-                                    ${patchDecision.rejection_reasons.map(r => `<li>${r}</li>`).join('')}
-                                </ul>
-                            </div>
-                        `;
+                        html += `<div class="rejection-reasons-box"><div class="title">REJECTION REASONS:</div><ul>` +
+                            patchDecision.rejection_reasons.map(r => `<li>${r}</li>`).join('') +
+                            `</ul></div>`;
                     }
                     html += `</div>`;
                     utilityComparison.innerHTML = html;
                 }
+            } else if (isPatch && utilityComparison) {
+                // Patch was proposed but no governor decision returned — pre-eval guard rejected it
+                utilityComparison.innerHTML = '<div style="color:#ff8888;padding:0.75rem;font-size:0.8rem">PATCH REJECTED BY PRE-EVAL GUARD<br><span style="color:#888">improved_strategy too short or failed format check — Governor was not reached.</span></div>';
             }
             if (rewardBreakdown) {
                 logSystem(
