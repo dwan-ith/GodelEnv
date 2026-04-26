@@ -278,18 +278,46 @@ def test_provider_circuit_breaker_disables_after_connection_error() -> None:
     ProviderCircuitBreaker.reset()
 
 
+def _clear_provider_env(monkeypatch) -> None:
+    for key in (
+        "API_KEY",
+        "API_BASE_URL",
+        "CUSTOM_API_KEY",
+        "CUSTOM_API_BASE_URL",
+        "CUSTOM_MODEL_NAME",
+        "MODEL_NAME",
+        "OPENAI_API_KEY",
+        "OPENAI_API_BASE_URL",
+        "OPENAI_MODEL_NAME",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_API_BASE_URL",
+        "OPENROUTER_MODEL_NAME",
+        "HF_TOKEN",
+        "HF_API_KEY",
+        "HF_API_BASE_URL",
+        "HF_MODEL_NAME",
+        "HF_INFERENCE_MODEL",
+        "HUGGINGFACE_API_KEY",
+        "HUGGINGFACE_TOKEN",
+        "HUGGINGFACEHUB_API_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "HF_ACCESS_TOKEN",
+        "OLLAMA_API_BASE_URL",
+        "OLLAMA_HOST",
+        "OLLAMA_MODEL_NAME",
+        "OLLAMA_MODEL",
+        "OLLAMA_API_KEY",
+        "GODEL_USE_OLLAMA",
+        "GODEL_PROVIDER_ORDER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_load_provider_configs_keeps_provider_groups_separate(monkeypatch) -> None:
+    _clear_provider_env(monkeypatch)
     monkeypatch.setenv("API_KEY", "custom-key")
     monkeypatch.setenv("API_BASE_URL", "https://custom.example/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
-    monkeypatch.delenv("OPENAI_API_BASE_URL", raising=False)
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HF_API_KEY", raising=False)
-    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
-    monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
-    monkeypatch.delenv("HUGGINGFACEHUB_API_TOKEN", raising=False)
-    monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
-    monkeypatch.delenv("HF_ACCESS_TOKEN", raising=False)
     monkeypatch.setenv("GODEL_PROVIDER_ORDER", "custom,openai")
 
     configs = load_provider_configs()
@@ -299,9 +327,7 @@ def test_load_provider_configs_keeps_provider_groups_separate(monkeypatch) -> No
 
 
 def test_load_provider_configs_defaults_hf_router(monkeypatch) -> None:
-    monkeypatch.delenv("API_KEY", raising=False)
-    monkeypatch.delenv("API_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _clear_provider_env(monkeypatch)
     monkeypatch.setenv("HF_TOKEN", "hf-token")
 
     configs = load_provider_configs()
@@ -310,8 +336,7 @@ def test_load_provider_configs_defaults_hf_router(monkeypatch) -> None:
 
 
 def test_load_provider_configs_uses_space_style_hf_base_url(monkeypatch) -> None:
-    monkeypatch.delenv("API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _clear_provider_env(monkeypatch)
     monkeypatch.setenv("HF_TOKEN", "hf-token")
     monkeypatch.setenv("API_BASE_URL", "https://router.huggingface.co/v1")
     monkeypatch.setenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
@@ -324,11 +349,7 @@ def test_load_provider_configs_uses_space_style_hf_base_url(monkeypatch) -> None
 
 
 def test_load_provider_configs_accepts_hf_aliases(monkeypatch) -> None:
-    monkeypatch.delenv("API_KEY", raising=False)
-    monkeypatch.delenv("API_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("HF_TOKEN", raising=False)
+    _clear_provider_env(monkeypatch)
     monkeypatch.setenv("HF_API_KEY", "hf-token")
     monkeypatch.setenv("HF_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct:novita")
 
@@ -340,15 +361,7 @@ def test_load_provider_configs_accepts_hf_aliases(monkeypatch) -> None:
 
 
 def test_load_provider_configs_accepts_openrouter_aliases(monkeypatch) -> None:
-    monkeypatch.delenv("API_KEY", raising=False)
-    monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
-    monkeypatch.delenv("CUSTOM_MODEL_NAME", raising=False)
-    monkeypatch.delenv("CUSTOM_API_BASE_URL", raising=False)
-    monkeypatch.delenv("API_BASE_URL", raising=False)
-    monkeypatch.delenv("MODEL_NAME", raising=False)
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HF_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _clear_provider_env(monkeypatch)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     monkeypatch.setenv("OPENROUTER_MODEL_NAME", "openai/gpt-4.1-mini")
 
@@ -361,21 +374,9 @@ def test_load_provider_configs_accepts_openrouter_aliases(monkeypatch) -> None:
 
 def test_openai_never_uses_hub_model_id_from_model_name(monkeypatch) -> None:
     """MODEL_NAME is for HuggingFace; do not pass Qwen/... to the OpenAI API."""
-    for key in (
-        "HF_TOKEN",
-        "HF_API_KEY",
-        "HUGGINGFACE_API_KEY",
-        "HUGGINGFACE_TOKEN",
-        "HUGGINGFACEHUB_API_TOKEN",
-        "HUGGING_FACE_HUB_TOKEN",
-        "HF_ACCESS_TOKEN",
-        "API_KEY",
-    ):
-        monkeypatch.delenv(key, raising=False)
-    monkeypatch.delenv("API_BASE_URL", raising=False)
+    _clear_provider_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
-    monkeypatch.delenv("OPENAI_MODEL_NAME", raising=False)
 
     configs = load_provider_configs()
     openai_config = next(c for c in configs if c.name == "openai")

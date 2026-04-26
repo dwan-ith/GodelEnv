@@ -8,27 +8,16 @@ RUN useradd -m -u 1000 user
 WORKDIR /app
 
 # Copy only dependency manifests first (maximises cache hit on rebuilds)
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml requirements.txt uv.lock ./
 
 # Install runtime dependencies into the system Python (no venv).
-# `pyproject.toml` is not a requirements file; install the explicit server deps
-# here, then install the local package after the source has been copied.
-RUN uv pip install --system \
-    "openenv-core>=0.2.3" \
-    "pydantic>=2.0" \
-    "httpx>=0.20.0" \
-    "openai>=1.0.0" \
-    "python-dotenv>=1.0.1" \
-    "fastapi>=0.111.0" \
-    "uvicorn[standard]>=0.30.0" \
-    "websockets>=12.0" \
-    "json-repair>=0.28"
+RUN uv pip install --system -r requirements.txt
 
 # Copy application code
 COPY godel_engine/ ./godel_engine/
 COPY server/ ./server/
 COPY dashboard/ ./dashboard/
-COPY inference.py baseline.py ./
+COPY app.py inference.py baseline.py ./
 
 # Install the local package itself
 RUN uv pip install --system --no-deps -e .

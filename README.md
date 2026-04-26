@@ -5,10 +5,12 @@ colorFrom: blue
 colorTo: indigo
 sdk: docker
 pinned: false
+tags:
+  - openenv
 ---
 # GodelEnv: A Self-Improving RL Environment
 
-GodelEnv is a reinforcement learning environment built on the `openenv-core` framework. It is designed to move beyond static, single-turn task optimization. Instead of merely rewarding an agent for producing a correct final answer, GodelEnv provides the infrastructure for **recursive skill amplification**: an agent can propose mutations to its own reasoning strategy, test those mutations against hidden downstream tasks, and retain them only if they genuinely improve multi-objective utility.
+GodelEnv is an OpenEnv environment for the real workflow AI teams use when they iterate on prompts, reasoning policies, and evaluation recipes before shipping a better assistant. Instead of merely rewarding a single final answer, it simulates proposing a policy change, testing it on held-out downstream tasks, and only adopting it when the evidence shows a real multi-objective improvement. In that sense, the environment is about **verifiable strategy iteration**, not just one-off task completion.
 
 > "GodelEnv is an OpenEnv environment for training agents to propose, test, and selectively adopt self-modifications to their own reasoning and coding strategies under verifier-backed meta-evaluation."
 
@@ -181,7 +183,7 @@ When LLM providers are unavailable, the environment uses an intelligent heuristi
 
 GodelEnv ships with a reproducible training pipeline (`train.py`). **Default (`--generation-mode freeform`)** trains the model to generate full JSON actions end-to-end, which is the primary training mode. The environment rewards structured action format compliance and task correctness.
 
-**Neutral held-out evaluation (not heuristic simulation):** set `GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0` and provide API keys so `StrategyEvaluator` never falls back to `build_heuristic_solution`. See [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md) for Colab/GPU commands and longer runs.
+**Neutral held-out evaluation (not heuristic simulation):** set `GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0` and provide API keys so `StrategyEvaluator` never falls back to `build_heuristic_solution`. For Colab/GPU runs, use [train_colab.ipynb](train_colab.ipynb) or [train_colab.py](train_colab.py).
 
 1. **Prompt Collection**: Samples initial states from the live environment.
 2. **Warm-Start**: Teaches the model the `Action` / `StrategyPatch` JSON schema via teacher demonstrations.
@@ -249,7 +251,7 @@ Local proof-of-concept (CPU, freeform JSON mode):
 ```bash
 python train.py
 ```
-**Serious / GPU / Colab** (freeform + API-backed eval): see [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md). The maintainers of this repo cannot run long jobs on your hardware; use Colab, a cloud GPU, or your own machine.
+**Serious / GPU / Colab** (freeform + API-backed eval): use [train_colab.ipynb](train_colab.ipynb) or [train_colab.py](train_colab.py). The maintainers of this repo cannot run long jobs on your hardware; use Colab, a cloud GPU, or your own machine.
 
 ## Project Links
 

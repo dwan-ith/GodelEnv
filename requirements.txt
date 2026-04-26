@@ -1,0 +1,9 @@
+fastapi==0.135.3
+httpx==0.28.1
+json-repair==0.59.5
+openai==2.18.0
+openenv-core==0.2.3
+pydantic==2.12.5
+python-dotenv==1.2.2
+uvicorn[standard]==0.44.0
+websockets==15.0.1
