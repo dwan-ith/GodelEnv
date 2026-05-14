@@ -43,6 +43,8 @@ from godel_engine.evolution import (
     GovernorConfig,
     HuxleyTracker,
 )
+from godel_engine.self_improve import SelfImprovementRunner
+from godel_engine.research_eval import ResearchEvaluator
 
 __all__ = [
     # Core environment
@@ -63,6 +65,8 @@ __all__ = [
     "StrategyRegistry",
     "Governor",
     "GovernorConfig",
+    "SelfImprovementRunner",
+    "ResearchEvaluator",
     # Anti-hacking
     "run_all_guards",
     "run_strategy_guards",

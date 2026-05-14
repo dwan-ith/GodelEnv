@@ -1,0 +1,108 @@
+{
+  "runs": 1,
+  "attempts": 1,
+  "patches_proposed": 1,
+  "patches_accepted": 0,
+  "acceptance_rate_ci": {
+    "mean": 0.0,
+    "std": 0.0,
+    "low": 0.0,
+    "high": 0.0,
+    "n": 1
+  },
+  "improvement_ci": {
+    "mean": 0.0,
+    "std": 0.0,
+    "low": 0.0,
+    "high": 0.0,
+    "n": 1
+  },
+  "reward_ci": {
+    "mean": -0.34772570451212403,
+    "std": 0.0,
+    "low": -0.34772570451212403,
+    "high": -0.34772570451212403,
+    "n": 1
+  },
+  "score_ci": {
+    "mean": 0.62465487073206,
+    "std": 0.0,
+    "low": 0.62465487073206,
+    "high": 0.62465487073206,
+    "n": 1
+  },
+  "accepted_by_run_ci": {
+    "mean": 0.0,
+    "std": 0.0,
+    "low": 0.0,
+    "high": 0.0,
+    "n": 1
+  },
+  "best_generation_slope": 0.0,
+  "all_strategy_evals_llm_backed": true,
+  "deterministic_eval_attempts": 0,
+  "provider_separation_ok": false,
+  "token_usage": {
+    "prompt_tokens": 2975,
+    "completion_tokens": 5768,
+    "total_tokens": 8743,
+    "estimated_cost_usd": 0.0
+  },
+  "runs_detail": [
+    {
+      "attempts": 1,
+      "patches_proposed": 1,
+      "patches_accepted": 0,
+      "patches_rejected": 1,
+      "acceptance_rate": 0.0,
+      "llm_evaluated_attempts": 1,
+      "all_strategy_evals_llm_backed": true,
+      "deterministic_eval_attempts": 0,
+      "provider_separation_ok": false,
+      "token_usage": {
+        "prompt_tokens": 2975,
+        "completion_tokens": 5768,
+        "total_tokens": 8743,
+        "estimated_cost_usd": 0.0
+      },
+      "best_strategy_id": "strat_root",
+      "best_strategy_generation": 0,
+      "best_strategy_elo": 1000.0,
+      "registry": {
+        "total_strategies": 1,
+        "best_strategy_id": "strat_root",
+        "best_elo": 1000.0,
+        "best_fitness": 0.7663888888888889,
+        "max_generation": 0,
+        "total_rejected": 1
+      },
+      "events": [
+        {
+          "iteration": 1,
+          "task_type": "strategy_optimization",
+          "task_id": "godel01",
+          "agent_source": "llm:custom",
+          "patch_proposed": true,
+          "patch_accepted": false,
+          "reward": -0.34772570451212403,
+          "score": 0.62465487073206,
+          "improvement": 0.0,
+          "rejection_reasons": [
+            "Strategy regressed on 6/11 tasks (55% > 35%)"
+          ],
+          "source_counts": {
+            "llm:custom": 11
+          },
+          "token_usage": {
+            "prompt_tokens": 2975,
+            "completion_tokens": 5768,
+            "total_tokens": 8743
+          },
+          "provider_separation_ok": false,
+          "error": null
+        }
+      ],
+      "errors": []
+    }
+  ]
+}

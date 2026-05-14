@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import uuid
 from pathlib import Path
 
 os.environ["GODEL_GRADING_MODE"] = "deterministic"
+os.environ["GODEL_STRATEGY_EVAL_MODE"] = "deterministic"
+os.environ["GODEL_AGENT_MODE"] = "deterministic"
+os.environ["GODEL_ALLOW_DETERMINISTIC_FALLBACK"] = "1"
 os.environ["HF_TOKEN"] = ""
 os.environ["HF_API_KEY"] = ""
 os.environ["HUGGINGFACE_API_KEY"] = ""
@@ -22,7 +26,9 @@ from fastapi.testclient import TestClient
 
 from godel_engine.environment import GodelEnvironment
 from godel_engine.evolution import Strategy
+from godel_engine.guards import run_strategy_guards
 from godel_engine.heuristic_policy import build_heuristic_action
+from godel_engine.models import EditType, GodelAction, StrategyPatch
 from godel_engine.provider_runtime import (
     DEFAULT_HF_ROUTER_BASE_URL,
     DEFAULT_OPENAI_MODEL,
@@ -37,7 +43,107 @@ from godel_engine.rollout import (
     parse_completion_to_action,
     parse_prompt_metadata,
 )
+from godel_engine.research_eval import (
+    ADVERSARIAL_STRATEGY_PATCHES,
+    ResearchEvaluator,
+    StaticBaselinePatchAgent,
+    confidence_interval,
+    linear_slope,
+)
+from godel_engine.self_improve import SelfImprovementRunner
+from godel_engine.strategy_evaluator import StrategyEvaluator
 from server.app import app
+
+
+class ScriptedLLMStrategyEvaluator:
+    """A deterministic test double that reports LLM-like source diagnostics."""
+
+    mode = "llm"
+
+    async def evaluate(
+        self,
+        tasks,
+        strategy_text: str,
+        *,
+        episode_id: str,
+        current_task_id: str = "",
+        challenge_pool=None,
+    ):
+        improved = all(
+            marker in strategy_text.lower()
+            for marker in ("decompose", "evidence", "verify", "uncertainty")
+        )
+        if improved:
+            per_task = {
+                "heldout:factual_qa:qa02": 0.74,
+                "heldout:reasoning:reason01": 0.70,
+                "canary:strategy_optimization:godel01": 0.72,
+            }
+            per_family = {
+                "factual_qa": 0.74,
+                "reasoning": 0.70,
+                "strategy_optimization": 0.72,
+            }
+        else:
+            per_task = {
+                "heldout:factual_qa:qa02": 0.50,
+                "heldout:reasoning:reason01": 0.48,
+                "canary:strategy_optimization:godel01": 0.49,
+            }
+            per_family = {
+                "factual_qa": 0.50,
+                "reasoning": 0.48,
+                "strategy_optimization": 0.49,
+            }
+        values = list(per_family.values())
+        axis_scores = {
+            "correctness": sum(values) / len(values),
+            "generalization": min(values),
+            "robustness": 0.96,
+            "cost": 0.70,
+            "stability": 0.95,
+        }
+        return axis_scores, per_task, {
+            "mode": "llm",
+            "verifier": "llm_required",
+            "per_family": per_family,
+            "axis_scores": axis_scores,
+            "source_counts": {"llm:test": len(per_task)},
+            "providers": [{"name": "test", "configured": True}],
+            "agent_challenges_mixed": 0,
+        }
+
+
+class ScriptedPatchAgent:
+    def __init__(self, *, provider: str = "test-agent", model: str | None = None) -> None:
+        self.last_provider = provider
+        self.last_model = model
+        self.last_source = f"llm:{provider}:{model}" if model else f"llm:{provider}"
+        self.last_error = None
+
+    async def act(self, **kwargs) -> GodelAction:
+        self.last_source = (
+            f"llm:{self.last_provider}:{self.last_model}"
+            if self.last_model
+            else f"llm:{self.last_provider}"
+        )
+        return GodelAction(
+            solution="Demonstrate a verified evidence-first strategy.",
+            edit_type=EditType.REWRITE,
+            strategy_note="scripted strategy patch",
+            strategy_patch=StrategyPatch(
+                improved_strategy=(
+                    "1. Decompose the task into claims and assumptions.\n"
+                    "2. Gather evidence for every important claim.\n"
+                    "3. Mark uncertainty where the evidence is incomplete.\n"
+                    "4. Verify that the final answer addresses the exact prompt.\n"
+                    "5. Reflect on repeated failures before proposing the next patch."
+                ),
+                diff_description="Adds evidence, uncertainty, verification, and reflection.",
+                hypothesis="The stronger loop should improve held-out task performance.",
+                target_weaknesses=["missing evidence", "missing verification"],
+            ),
+        )
 
 
 def test_reset_can_target_specific_task_instance() -> None:
@@ -77,6 +183,18 @@ def test_prompt_dataset_includes_replay_metadata() -> None:
     assert "strategy_text" in prompt_data[0]
     assert "reference" in prompt_data[0]
     assert prompt_data[0]["reference"]["id"].startswith("qa")
+
+
+def test_strategy_evaluator_bundle_includes_adversarial_cases() -> None:
+    env = GodelEnvironment(seed=1)
+    evaluator = StrategyEvaluator(seed=1, max_cases=4)
+    bundle = evaluator.build_bundle(
+        env.tasks,
+        episode_id="adv-test",
+        current_task_id="godel01",
+    )
+    assert any(case.split == "adversarial" for case in bundle)
+    assert any(case.split == "canary" for case in bundle)
 
 
 def test_openenv_websocket_session_preserves_state() -> None:
@@ -189,6 +307,202 @@ def test_strategy_evaluation_depends_on_strategy_text() -> None:
         assert strong_axes["generalization"] >= weak_axes["generalization"]
 
     asyncio.run(_run())
+
+
+def test_strategy_patch_can_be_accepted_with_llm_evaluator() -> None:
+    async def _run() -> None:
+        env = GodelEnvironment(seed=42)
+        env.strategy_evaluator = ScriptedLLMStrategyEvaluator()
+        await env.reset(task_type="strategy_optimization", task_id="godel01", seed=42)
+        parent_id = env.current_strategy.id
+
+        action = GodelAction(
+            solution="Demonstrate the revised strategy on the downstream challenge.",
+            strategy_patch=StrategyPatch(
+                improved_strategy=(
+                    "1. Decompose the task into claims and assumptions.\n"
+                    "2. Gather evidence for each major claim.\n"
+                    "3. Mark uncertainty where the evidence is incomplete.\n"
+                    "4. Verify that the final answer addresses the exact prompt.\n"
+                    "5. Reflect on repeated failures before future patches."
+                ),
+                diff_description="Adds evidence, uncertainty, and verification.",
+                hypothesis="More explicit checks should improve held-out task performance.",
+                target_weaknesses=["missing verification", "under-specified evidence"],
+            ),
+        )
+
+        result = await env.step(action)
+        assert result.patch_decision is not None
+        assert result.patch_decision.accepted is True
+        assert env.current_strategy.id != parent_id
+        assert env.patches_accepted == 1
+        assert result.reward > 0
+        assert result.patch_decision.diagnostics["child_source_counts"] == {"llm:test": 3}
+
+    asyncio.run(_run())
+
+
+def test_rejected_patch_does_not_advance_score_or_reward_child_bonus() -> None:
+    async def _run() -> None:
+        env = GodelEnvironment(seed=42)
+        env.strategy_evaluator = ScriptedLLMStrategyEvaluator()
+        await env.reset(task_type="strategy_optimization", task_id="godel01", seed=42)
+        parent_id = env.current_strategy.id
+
+        action = GodelAction(
+            solution="A vague demonstration.",
+            strategy_patch=StrategyPatch(
+                improved_strategy=(
+                    "1. Read the prompt.\n"
+                    "2. Answer directly.\n"
+                    "3. Be concise without adding the extra verification structure."
+                ),
+                diff_description="Too small to matter.",
+                hypothesis="A shorter strategy might be cheaper.",
+                target_weaknesses=["verbosity"],
+            ),
+        )
+
+        result = await env.step(action)
+        assert result.patch_decision is not None
+        assert result.patch_decision.accepted is False
+        assert env.current_strategy.id == parent_id
+        assert env.patches_rejected == 1
+        assert result.reward < 0
+        assert result.reward_breakdown.generalization_score == 0.0
+
+    asyncio.run(_run())
+
+
+def test_self_improvement_runner_persists_accepted_lineage() -> None:
+    async def _run() -> None:
+        scratch = Path("artifacts") / "test_self_improve" / uuid.uuid4().hex
+        registry_path = scratch / "registry.json"
+        metrics_path = scratch / "metrics.json"
+        runner = SelfImprovementRunner(
+            registry_path=registry_path,
+            metrics_path=metrics_path,
+            agent=ScriptedPatchAgent(),
+            strategy_evaluator=ScriptedLLMStrategyEvaluator(),
+            seed=5,
+        )
+        summary = await runner.run(iterations=2, task_ids=["godel01"])
+
+        assert summary["attempts"] >= 2
+        assert summary["patches_proposed"] >= 2
+        assert summary["patches_accepted"] >= 1
+        assert summary["llm_evaluated_attempts"] == summary["patches_proposed"]
+        assert summary["all_strategy_evals_llm_backed"] is True
+        assert summary["best_strategy_generation"] >= 1
+        assert registry_path.exists()
+        assert metrics_path.exists()
+
+        reloaded = SelfImprovementRunner(
+            registry_path=registry_path,
+            agent=ScriptedPatchAgent(),
+            strategy_evaluator=ScriptedLLMStrategyEvaluator(),
+            seed=6,
+        )
+        assert reloaded.registry.get_stats()["max_generation"] >= 1
+        registry_path.unlink(missing_ok=True)
+        metrics_path.unlink(missing_ok=True)
+        scratch.rmdir()
+
+    asyncio.run(_run())
+
+
+def test_research_evaluator_reports_statistics_and_baseline_comparison() -> None:
+    async def _run() -> None:
+        scratch = Path("artifacts") / "test_research_eval" / uuid.uuid4().hex
+        evaluator = ResearchEvaluator(
+            seeds=[3, 4],
+            iterations=2,
+            output_dir=scratch,
+            agent=ScriptedPatchAgent(),
+            baseline_agent=StaticBaselinePatchAgent(),
+            strategy_evaluator=ScriptedLLMStrategyEvaluator(),
+            task_ids=["godel01"],
+        )
+        report = await evaluator.run()
+
+        assert report["runs"] == 2
+        assert report["patches_proposed"] >= 4
+        assert report["patches_accepted"] >= 2
+        assert report["all_strategy_evals_llm_backed"] is True
+        assert report["provider_separation_ok"] is True
+        assert report["improvement_ci"]["n"] == report["patches_proposed"]
+        assert report["reward_ci"]["low"] <= report["reward_ci"]["mean"] <= report["reward_ci"]["high"]
+        assert "baseline_comparison" in report
+        assert report["baseline_comparison"]["baseline_runs"] == 2
+        assert (scratch / "research_report.json").exists()
+
+    asyncio.run(_run())
+
+
+def test_provider_model_separation_accepts_distinct_models() -> None:
+    class OtherModelEvaluator(ScriptedLLMStrategyEvaluator):
+        async def evaluate(self, *args, **kwargs):
+            axes, per_task, diagnostics = await super().evaluate(*args, **kwargs)
+            diagnostics["source_counts"] = {"llm:custom:verifier-model": len(per_task)}
+            return axes, per_task, diagnostics
+
+    async def _run() -> None:
+        scratch = Path("artifacts") / "test_self_improve" / uuid.uuid4().hex
+        runner = SelfImprovementRunner(
+            registry_path=scratch / "registry.json",
+            metrics_path=scratch / "metrics.json",
+            agent=ScriptedPatchAgent(provider="custom", model="agent-model"),
+            strategy_evaluator=OtherModelEvaluator(),
+            seed=7,
+        )
+        summary = await runner.run(iterations=1, task_ids=["godel01"])
+
+        assert summary["patches_proposed"] == 1
+        assert summary["provider_separation_ok"] is True
+
+    asyncio.run(_run())
+
+
+def test_provider_model_separation_flags_same_model() -> None:
+    class SameModelEvaluator(ScriptedLLMStrategyEvaluator):
+        async def evaluate(self, *args, **kwargs):
+            axes, per_task, diagnostics = await super().evaluate(*args, **kwargs)
+            diagnostics["source_counts"] = {"llm:custom:same-model": len(per_task)}
+            return axes, per_task, diagnostics
+
+    async def _run() -> None:
+        scratch = Path("artifacts") / "test_self_improve" / uuid.uuid4().hex
+        runner = SelfImprovementRunner(
+            registry_path=scratch / "registry.json",
+            metrics_path=scratch / "metrics.json",
+            agent=ScriptedPatchAgent(provider="custom", model="same-model"),
+            strategy_evaluator=SameModelEvaluator(),
+            seed=8,
+        )
+        summary = await runner.run(iterations=1, task_ids=["godel01"])
+
+        assert summary["patches_proposed"] == 1
+        assert summary["provider_separation_ok"] is False
+
+    asyncio.run(_run())
+
+
+def test_statistical_helpers_handle_confidence_and_trends() -> None:
+    ci = confidence_interval([1.0, 2.0, 3.0])
+    assert ci["n"] == 3
+    assert ci["low"] < ci["mean"] < ci["high"]
+    assert linear_slope([1.0, 2.0, 3.0, 4.0]) > 0
+    assert linear_slope([4.0, 3.0, 2.0, 1.0]) < 0
+
+
+def test_adversarial_strategy_patches_trip_reward_hacking_guards() -> None:
+    parent = {"heldout:a": 0.8, "heldout:b": 0.8, "canary:c": 0.8}
+    child = {"heldout:a": 0.1, "heldout:b": 0.1, "canary:c": 0.1}
+    for patch in ADVERSARIAL_STRATEGY_PATCHES:
+        result = run_strategy_guards(patch["strategy_text"], parent, child)
+        assert result.passed is False, patch["name"]
+        assert result.penalty < 0.0
 
 
 def test_json_action_parses_to_real_solution() -> None:
@@ -309,6 +623,10 @@ def _clear_provider_env(monkeypatch) -> None:
         "OLLAMA_API_KEY",
         "GODEL_USE_OLLAMA",
         "GODEL_PROVIDER_ORDER",
+        "GODEL_AGENT_PROVIDER_ORDER",
+        "GODEL_VERIFIER_PROVIDER_ORDER",
+        "GODEL_AGENT_MODEL_NAME",
+        "GODEL_VERIFIER_MODEL_NAME",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -370,6 +688,22 @@ def test_load_provider_configs_accepts_openrouter_aliases(monkeypatch) -> None:
     assert custom_config.name == "custom"
     assert custom_config.base_url == "https://openrouter.ai/api/v1"
     assert custom_config.model_name == "openai/gpt-4.1-mini"
+
+
+def test_role_specific_model_overrides_for_proposer_and_verifier(monkeypatch) -> None:
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+    monkeypatch.setenv("OPENROUTER_MODEL_NAME", "default-model")
+    monkeypatch.setenv("GODEL_AGENT_MODEL_NAME", "agent-model")
+    monkeypatch.setenv("GODEL_VERIFIER_MODEL_NAME", "verifier-model")
+
+    agent_config = load_provider_configs(order_env="GODEL_AGENT_PROVIDER_ORDER")[0]
+    verifier_config = load_provider_configs(order_env="GODEL_VERIFIER_PROVIDER_ORDER")[0]
+
+    assert agent_config.name == "custom"
+    assert agent_config.model_name == "agent-model"
+    assert verifier_config.name == "custom"
+    assert verifier_config.model_name == "verifier-model"
 
 
 def test_openai_never_uses_hub_model_id_from_model_name(monkeypatch) -> None:

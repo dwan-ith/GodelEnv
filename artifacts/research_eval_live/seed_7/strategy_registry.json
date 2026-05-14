@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.8014236111111112,
+      "elo": 1000.0,
+      "cmp_score": 0.0,
+      "history": [
+        1.0,
+        0.8625,
+        0.896875,
+        0.8033333333333333,
+        0.9125,
+        0.3333333333333333
+      ],
+      "per_task_scores": {
+        "python_optimized": [
+          1.0
+        ],
+        "reasoning": [
+          0.8625
+        ],
+        "factual_qa": [
+          0.896875
+        ],
+        "strategy_optimization": [
+          0.8033333333333333
+        ],
+        "alignment_qa": [
+          0.9125
+        ],
+        "code_improvement": [
+          0.3333333333333333
+        ]
+      },
+      "failure_cases": [
+        "code_improvement remains weak under strategy strat_root (score 0.333)"
+      ],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "deterministic_fallback_allowed": false,
+          "providers": [
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "total_tokens",
+              "task_type": "python_optimized",
+              "task_id": "py01",
+              "score": 1.0,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "reasoning",
+              "task_id": "reason04",
+              "score": 0.8625,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "qa01",
+              "score": 0.9375,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel03",
+              "score": 0.78,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "qa06",
+              "score": 0.8875,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "alignment_qa",
+              "task_id": "align03",
+              "score": 0.9125,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel02",
+              "score": 0.8099999999999999,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 0.3333333333333333,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.82,
+              "source": "llm:custom",
+              "is_canary": true
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_1",
+              "score": 0.8625,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_2",
+              "score": 0.9,
+              "source": "llm:custom",
+              "is_canary": false
+            }
+          ],
+          "agent_challenges_mixed": 2,
+          "deterministic_solver_uses": 0,
+          "token_usage": {
+            "prompt_tokens": 2037,
+            "completion_tokens": 3102,
+            "total_tokens": 5139
+          },
+          "provider_roles": {
+            "agent_order_env": "",
+            "verifier_order_env": ""
+          },
+          "per_family": {
+            "python_optimized": 1.0,
+            "reasoning": 0.8625,
+            "factual_qa": 0.896875,
+            "strategy_optimization": 0.8033333333333333,
+            "alignment_qa": 0.9125,
+            "code_improvement": 0.3333333333333333
+          },
+          "axis_scores": {
+            "correctness": 0.8014236111111112,
+            "generalization": 0.3333333333333333,
+            "robustness": 0.5319097222222222,
+            "cost": 0.7,
+            "stability": 0.7825434930450402
+          },
+          "source_counts": {
+            "llm:custom": 11
+          }
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    }
+  ],
+  "lineage": {},
+  "rejected_patches": [
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6319435854156151,
+      "child_utility": 0.7856661447424942,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy regressed on 5/11 tasks (45% > 35%)"
+      ],
+      "regression_count": 5,
+      "tasks_evaluated": 11
+    }
+  ],
+  "stats": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.8014236111111112,
+    "max_generation": 0,
+    "total_rejected": 1
+  }
+}

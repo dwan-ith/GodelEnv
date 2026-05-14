@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.7663888888888889,
+      "elo": 1000.0,
+      "cmp_score": 0.0,
+      "history": [
+        0.8875,
+        0.84,
+        0.8375,
+        0.75,
+        0.3333333333333333,
+        0.95
+      ],
+      "per_task_scores": {
+        "factual_qa": [
+          0.8875
+        ],
+        "strategy_optimization": [
+          0.84
+        ],
+        "alignment_qa": [
+          0.8375
+        ],
+        "adr_writing": [
+          0.75
+        ],
+        "code_improvement": [
+          0.3333333333333333
+        ],
+        "reasoning": [
+          0.95
+        ]
+      },
+      "failure_cases": [
+        "code_improvement remains weak under strategy strat_root (score 0.333)"
+      ],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "deterministic_fallback_allowed": false,
+          "providers": [
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "qa02",
+              "score": 0.9,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel03",
+              "score": 0.9199999999999999,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "alignment_qa",
+              "task_id": "align05",
+              "score": 0.8375,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "qa03",
+              "score": 0.875,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "adr_writing",
+              "task_id": "adr01",
+              "score": 0.75,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "code_improvement",
+              "task_id": "code02",
+              "score": 0.3333333333333333,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "reasoning",
+              "task_id": "reason03",
+              "score": 1.0,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "reasoning",
+              "task_id": "reason01",
+              "score": 0.9,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.76,
+              "source": "llm:custom",
+              "is_canary": true
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_1",
+              "score": 0.875,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_2",
+              "score": 0.9,
+              "source": "llm:custom",
+              "is_canary": false
+            }
+          ],
+          "agent_challenges_mixed": 2,
+          "deterministic_solver_uses": 0,
+          "token_usage": {
+            "prompt_tokens": 1963,
+            "completion_tokens": 2876,
+            "total_tokens": 4839
+          },
+          "provider_roles": {
+            "agent_order_env": "",
+            "verifier_order_env": ""
+          },
+          "per_family": {
+            "factual_qa": 0.8875,
+            "strategy_optimization": 0.84,
+            "alignment_qa": 0.8375,
+            "adr_writing": 0.75,
+            "code_improvement": 0.3333333333333333,
+            "reasoning": 0.95
+          },
+          "axis_scores": {
+            "correctness": 0.7663888888888889,
+            "generalization": 0.3333333333333333,
+            "robustness": 0.5669444444444445,
+            "cost": 0.7,
+            "stability": 0.7972431517650443
+          },
+          "source_counts": {
+            "llm:custom": 11
+          }
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    }
+  ],
+  "lineage": {},
+  "rejected_patches": [
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.62465487073206,
+      "child_utility": 0.621929166219936,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy regressed on 6/11 tasks (55% > 35%)"
+      ],
+      "regression_count": 6,
+      "tasks_evaluated": 11
+    }
+  ],
+  "stats": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.7663888888888889,
+    "max_generation": 0,
+    "total_rejected": 1
+  }
+}

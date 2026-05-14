@@ -1,0 +1,66 @@
+{
+  "attempts": 1,
+  "patches_proposed": 0,
+  "patches_accepted": 0,
+  "patches_rejected": 0,
+  "acceptance_rate": 0.0,
+  "llm_evaluated_attempts": 0,
+  "all_strategy_evals_llm_backed": false,
+  "deterministic_eval_attempts": 0,
+  "provider_separation_ok": true,
+  "token_usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost_usd": 0.0
+  },
+  "best_strategy_id": "strat_root",
+  "best_strategy_generation": 0,
+  "best_strategy_elo": 1000.0,
+  "registry": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.0,
+    "max_generation": 0,
+    "total_rejected": 0
+  },
+  "events": [
+    {
+      "iteration": 1,
+      "patch_attempt": 0,
+      "task_type": "strategy_optimization",
+      "task_id": "godel01",
+      "agent_source": "baseline:static",
+      "patch_proposed": false,
+      "patch_accepted": false,
+      "reward": 0.0,
+      "score": 0.0,
+      "improvement": 0.0,
+      "rejection_reasons": [],
+      "source_counts": {},
+      "token_usage": {},
+      "provider_separation_ok": true,
+      "error": "RuntimeError: LLM strategy evaluation failed for strategy_optimization/godel02: LLM strategy evaluation required but all providers failed: custom: APIStatusError: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 900 tokens, but can only afford 883. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_3BgFJ3LOKsscbPQGLBbhnnPITMN'}"
+    }
+  ],
+  "errors": [
+    {
+      "iteration": 1,
+      "patch_attempt": 0,
+      "task_type": "strategy_optimization",
+      "task_id": "godel01",
+      "agent_source": "baseline:static",
+      "patch_proposed": false,
+      "patch_accepted": false,
+      "reward": 0.0,
+      "score": 0.0,
+      "improvement": 0.0,
+      "rejection_reasons": [],
+      "source_counts": {},
+      "token_usage": {},
+      "provider_separation_ok": true,
+      "error": "RuntimeError: LLM strategy evaluation failed for strategy_optimization/godel02: LLM strategy evaluation required but all providers failed: custom: APIStatusError: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 900 tokens, but can only afford 883. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_3BgFJ3LOKsscbPQGLBbhnnPITMN'}"
+    }
+  ]
+}

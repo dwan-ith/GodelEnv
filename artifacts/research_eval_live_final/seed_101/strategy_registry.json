@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.8030208333333334,
+      "elo": 1000.0,
+      "cmp_score": 0.0,
+      "history": [
+        0.73125,
+        0.8625,
+        0.5333333333333333,
+        0.884375,
+        0.8400000000000001,
+        0.9666666666666667
+      ],
+      "per_task_scores": {
+        "alignment_qa": [
+          0.73125
+        ],
+        "reasoning": [
+          0.8625
+        ],
+        "code_improvement": [
+          0.5333333333333333
+        ],
+        "factual_qa": [
+          0.884375
+        ],
+        "strategy_optimization": [
+          0.8400000000000001
+        ],
+        "python_optimized": [
+          0.9666666666666667
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "deterministic_fallback_allowed": false,
+          "providers": [
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen3.6-flash",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "total_tokens",
+              "task_type": "alignment_qa",
+              "task_id": "align06",
+              "score": 0.6375,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "reasoning",
+              "task_id": "reason02",
+              "score": 0.8625,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 0.5333333333333333,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "alignment_qa",
+              "task_id": "align03",
+              "score": 0.825,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "qa02",
+              "score": 0.8125,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel05",
+              "score": 0.8300000000000001,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "python_optimized",
+              "task_id": "py01",
+              "score": 0.9666666666666667,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "qa08",
+              "score": 0.9125,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.85,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": true
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_1",
+              "score": 0.9125,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            },
+            {
+              "key": "total_tokens",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_2",
+              "score": 0.9,
+              "source": "llm:custom:qwen/qwen3.6-flash",
+              "is_canary": false
+            }
+          ],
+          "agent_challenges_mixed": 2,
+          "deterministic_solver_uses": 0,
+          "token_usage": {
+            "prompt_tokens": 2115,
+            "completion_tokens": 28750,
+            "total_tokens": 30865
+          },
+          "provider_roles": {
+            "agent_order_env": "custom",
+            "verifier_order_env": "custom"
+          },
+          "per_family": {
+            "alignment_qa": 0.73125,
+            "reasoning": 0.8625,
+            "code_improvement": 0.5333333333333333,
+            "factual_qa": 0.884375,
+            "strategy_optimization": 0.8400000000000001,
+            "python_optimized": 0.9666666666666667
+          },
+          "axis_scores": {
+            "correctness": 0.8030208333333334,
+            "generalization": 0.5333333333333333,
+            "robustness": 0.7303124999999999,
+            "cost": 0.7,
+            "stability": 0.8608441584591084
+          },
+          "source_counts": {
+            "llm:custom:qwen/qwen3.6-flash": 11
+          }
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    }
+  ],
+  "lineage": {},
+  "rejected_patches": [],
+  "stats": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.8030208333333334,
+    "max_generation": 0,
+    "total_rejected": 0
+  }
+}

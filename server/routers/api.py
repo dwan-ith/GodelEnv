@@ -58,15 +58,24 @@ async def demo_act(req: DemoActRequest) -> DemoActResponse:
     rubrics = task._get_rubrics() if task else {}
 
     agent = AutoAgent()
-    action = await agent.act(
-        task_prompt=req.task_prompt,
-        current_solution=req.current_solution,
-        rubrics=rubrics,
-        task_type=req.task_type,
-        strategy_text=req.current_strategy,
-        recent_failures=req.recent_failures,
-        downstream_scores=req.downstream_scores,
-    )
+    try:
+        action = await agent.act(
+            task_prompt=req.task_prompt,
+            current_solution=req.current_solution,
+            rubrics=rubrics,
+            task_type=req.task_type,
+            strategy_text=req.current_strategy,
+            recent_failures=req.recent_failures,
+            downstream_scores=req.downstream_scores,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "LLM agent unavailable",
+                "reason": str(exc),
+            },
+        ) from exc
 
     is_llm = agent.last_source.startswith("llm:")
 

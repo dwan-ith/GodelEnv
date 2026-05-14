@@ -124,7 +124,10 @@ class AgentGrader:
                         timeout=self.timeout,
                     )
 
-                content = response.choices[0].message.content or ""
+                choices = getattr(response, "choices", None) or []
+                if not choices or getattr(choices[0], "message", None) is None:
+                    raise ValueError("grader provider returned no chat choices")
+                content = choices[0].message.content or ""
                 payload = parse_llm_json_object(content if content.strip() else "{}")
 
                 raw_scores = payload.get("scores", {})

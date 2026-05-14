@@ -13,10 +13,12 @@ Acceptance depends on objective evidence, not vibes.
 """
 from __future__ import annotations
 
+import json
 import math
 import random
 import uuid
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Optional, Dict, List
 from dataclasses import dataclass, field
 
@@ -97,6 +99,50 @@ class Strategy:
     @property
     def total_evaluations(self) -> int:
         return len(self.history)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "policy_text": self.policy_text,
+            "parent_id": self.parent_id,
+            "generation": self.generation,
+            "fitness": self.fitness,
+            "elo": self.elo,
+            "cmp_score": self.cmp_score,
+            "history": list(self.history),
+            "per_task_scores": {
+                task: list(scores) for task, scores in self.per_task_scores.items()
+            },
+            "failure_cases": list(self.failure_cases),
+            "metadata": dict(self.metadata),
+            "patch_description": self.patch_description,
+            "patch_hypothesis": self.patch_hypothesis,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Strategy":
+        strategy = cls(
+            id=str(data["id"]),
+            policy_text=str(data.get("policy_text", DEFAULT_STRATEGY_TEXT)),
+            parent_id=data.get("parent_id"),
+            generation=int(data.get("generation", 0)),
+            fitness=float(data.get("fitness", 0.0)),
+            elo=float(data.get("elo", 1000.0)),
+            cmp_score=float(data.get("cmp_score", 0.0)),
+            history=[float(value) for value in data.get("history", [])],
+            failure_cases=[str(item) for item in data.get("failure_cases", [])],
+            metadata=dict(data.get("metadata", {})),
+            patch_description=data.get("patch_description"),
+            patch_hypothesis=data.get("patch_hypothesis"),
+        )
+        strategy.per_task_scores = defaultdict(
+            list,
+            {
+                str(task): [float(value) for value in scores]
+                for task, scores in dict(data.get("per_task_scores", {})).items()
+            },
+        )
+        return strategy
 
 
 # ── Elo System ───────────────────────────────────────────────────────
@@ -453,6 +499,54 @@ class StrategyRegistry:
             "max_generation": max(s.generation for s in self.strategies.values()),
             "total_rejected": len(self.rejected_patches),
         }
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "max_size": self.max_size,
+            "strategies": [
+                strategy.to_dict() for strategy in self.strategies.values()
+            ],
+            "lineage": {parent: list(children) for parent, children in self.lineage.items()},
+            "rejected_patches": list(self.rejected_patches),
+            "stats": self.get_stats(),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        *,
+        rng: Optional[random.Random] = None,
+    ) -> "StrategyRegistry":
+        registry = cls(max_size=int(data.get("max_size", 50)), rng=rng)
+        registry.strategies = {}
+        registry.lineage = {
+            str(parent): [str(child) for child in children]
+            for parent, children in dict(data.get("lineage", {})).items()
+        }
+        registry.rejected_patches = list(data.get("rejected_patches", []))
+        for item in data.get("strategies", []):
+            strategy = Strategy.from_dict(item)
+            registry.strategies[strategy.id] = strategy
+        if "strat_root" not in registry.strategies:
+            registry.add_strategy(Strategy(id="strat_root", generation=0, elo=1000.0))
+        return registry
+
+    def save(self, path: str | Path) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(
+        cls,
+        path: str | Path,
+        *,
+        rng: Optional[random.Random] = None,
+    ) -> "StrategyRegistry":
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls.from_dict(data, rng=rng)
 
 
 # ── Legacy compatibility aliases ─────────────────────────────────────

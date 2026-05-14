@@ -32,7 +32,9 @@ load_dotenv(override=False)
 
 async def run_smoke(require_llm: bool) -> dict:
     os.environ.setdefault("GODEL_GRADING_MODE", "auto")
-    os.environ.setdefault("GODEL_STRATEGY_EVAL_MODE", "auto")
+    os.environ.setdefault("GODEL_STRATEGY_EVAL_MODE", "llm")
+    os.environ.setdefault("GODEL_AGENT_MODE", "llm")
+    os.environ.setdefault("GODEL_ALLOW_DETERMINISTIC_FALLBACK", "0")
     ProviderCircuitBreaker.reset()
 
     env = GodelEnvironment(seed=42)
@@ -91,6 +93,14 @@ async def run_smoke(require_llm: bool) -> dict:
             raise RuntimeError(
                 "Hybrid smoke test did not observe any live LLM-backed path. "
                 "Check provider credentials, network access, or provider status."
+            )
+        if not report["patch_proposed"]:
+            raise RuntimeError(
+                "Self-improvement smoke test did not produce a StrategyPatch."
+            )
+        if report["patch_proposed"] and not used_llm_for_strategy_eval:
+            raise RuntimeError(
+                "StrategyPatch was proposed, but held-out strategy evaluation did not use an LLM."
             )
 
     return report

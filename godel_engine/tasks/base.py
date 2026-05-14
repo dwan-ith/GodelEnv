@@ -96,6 +96,14 @@ class BaseTask(ABC):
             }
             return llm_total, llm_scores, merged_feedback
 
+        if self.llm_grader.grading_mode == "llm":
+            self.last_grading_source = "error"
+            self.last_grading_error = self.llm_grader.last_error
+            raise RuntimeError(
+                "LLM grading required but no provider grade was available: "
+                f"{self.llm_grader.last_error or 'unknown error'}"
+            )
+
         self.last_grading_source = "deterministic"
         self.last_grading_error = self.llm_grader.last_error
         return deterministic_total, deterministic_scores, deterministic_feedback

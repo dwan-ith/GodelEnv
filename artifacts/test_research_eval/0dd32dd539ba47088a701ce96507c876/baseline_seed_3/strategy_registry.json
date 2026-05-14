@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.49,
+      "elo": 1000.0,
+      "cmp_score": 0.0,
+      "history": [
+        0.5,
+        0.48,
+        0.49,
+        0.5,
+        0.48,
+        0.49,
+        0.5,
+        0.48,
+        0.49,
+        0.5,
+        0.48,
+        0.49
+      ],
+      "per_task_scores": {
+        "factual_qa": [
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ],
+        "reasoning": [
+          0.48,
+          0.48,
+          0.48,
+          0.48
+        ],
+        "strategy_optimization": [
+          0.49,
+          0.49,
+          0.49,
+          0.49
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "per_family": {
+            "factual_qa": 0.5,
+            "reasoning": 0.48,
+            "strategy_optimization": 0.49
+          },
+          "axis_scores": {
+            "correctness": 0.49,
+            "generalization": 0.48,
+            "robustness": 0.96,
+            "cost": 0.7,
+            "stability": 0.95
+          },
+          "source_counts": {
+            "llm:test": 3
+          },
+          "providers": [
+            {
+              "name": "test",
+              "configured": true
+            }
+          ],
+          "agent_challenges_mixed": 0
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    }
+  ],
+  "lineage": {},
+  "rejected_patches": [
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6249999999999999,
+      "child_utility": 0.6249999999999999,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy too short: 10 words < 20 minimum"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 3
+    },
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6249999999999999,
+      "child_utility": 0.6249999999999999,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy too short: 10 words < 20 minimum"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 3
+    },
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6249999999999999,
+      "child_utility": 0.6249999999999999,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy too short: 10 words < 20 minimum"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 3
+    },
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6249999999999999,
+      "child_utility": 0.6249999999999999,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy too short: 10 words < 20 minimum"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 3
+    }
+  ],
+  "stats": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.49,
+    "max_generation": 0,
+    "total_rejected": 4
+  }
+}

@@ -6,23 +6,24 @@ heart of the hackathon idea: a StrategyPatch is not rewarded for sounding good;
 it is rewarded only if it improves held-out downstream task performance.
 
 Evaluation modes:
-- deterministic (default): fast, reproducible, no external credentials.
-- auto / llm: use an OpenAI-compatible endpoint when configured, otherwise fall
-  back to deterministic generation.
+- llm (default): require an OpenAI-compatible provider and fail closed if no
+  provider can solve the held-out case.
+- auto: try configured providers, but still fail closed unless deterministic
+  fallback is explicitly enabled.
+- deterministic: fast, reproducible local test mode. This is not neutral
+  evidence of self-improvement and must be opted into.
 
 For Hugging Face credits, set:
   HF_TOKEN=...  # HF_API_KEY / HUGGINGFACEHUB_API_TOKEN also work
   API_BASE_URL=https://router.huggingface.co/v1
   MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-  GODEL_STRATEGY_EVAL_MODE=auto
-
-Neutral verification (not heuristic simulation):
   GODEL_STRATEGY_EVAL_MODE=llm
-  GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0
-  (requires working OpenAI/HF API keys; otherwise evaluation raises)
 
-When ALLOW_HEURISTIC=1 (default), missing/failed API calls fall back to
-build_heuristic_solution — useful for CI, but not a neutral verifier.
+Local deterministic fallback can be enabled only with:
+  GODEL_STRATEGY_EVAL_MODE=deterministic
+or:
+  GODEL_ALLOW_DETERMINISTIC_FALLBACK=1
+
 """
 
 from __future__ import annotations
@@ -62,17 +63,24 @@ class EvaluationCase:
     inline_prompt: str | None = None
 
 
+ADVERSARIAL_FACTUAL_PROMPTS = (
+    "Explain why an AI evaluator can be gamed by optimizing a proxy metric, and give one concrete mitigation.",
+    "Compare a brittle keyword-based benchmark with a robust held-out evaluation protocol for model reasoning.",
+)
+
+
 class StrategyEvaluator:
     """Evaluates strategies on hidden downstream task bundles."""
 
     def __init__(self, *, seed: int = 42, timeout: int = 45, max_cases: int = 8) -> None:
         self.seed = seed
         self.timeout = timeout
-        self.max_cases = max_cases
-        # Default to "auto" - tries LLM first, falls back to deterministic
-        # Set GODEL_STRATEGY_EVAL_MODE=deterministic for reproducible training
-        self.mode = os.getenv("GODEL_STRATEGY_EVAL_MODE", "auto").strip().lower()
-        self.providers = load_provider_configs()
+        self.max_cases = int(os.getenv("GODEL_STRATEGY_EVAL_MAX_CASES", str(max_cases)) or max_cases)
+        self.max_tokens = int(os.getenv("GODEL_EVAL_MAX_TOKENS", "900") or 900)
+        # Default runtime is LLM-required. Deterministic evaluation is still
+        # available for local tests, but it must be explicitly requested.
+        self.mode = os.getenv("GODEL_STRATEGY_EVAL_MODE", "llm").strip().lower()
+        self.providers = load_provider_configs(order_env="GODEL_VERIFIER_PROVIDER_ORDER")
         self.clients: list[tuple[str, str, AsyncOpenAI]] = []
         if self.mode in {"auto", "llm"}:
             for provider in self.providers:
@@ -89,10 +97,12 @@ class StrategyEvaluator:
                     )
                 )
         self.last_error: str | None = None
-        # If False, never use build_heuristic_solution; require LLM (fail closed)
-        self.allow_heuristic = os.getenv(
-            "GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC", "1"
-        ).lower() in ("1", "true", "yes", "")
+        self.last_usage: dict[str, int] = {}
+        self.allow_deterministic_fallback = (
+            self.mode == "deterministic"
+            or os.getenv("GODEL_ALLOW_DETERMINISTIC_FALLBACK", "0").lower()
+            in ("1", "true", "yes")
+        )
 
     def build_bundle(
         self,
@@ -156,6 +166,20 @@ class StrategyEvaluator:
                     is_canary=True,
                 )
             )
+        if (
+            "factual_qa" in tasks
+            and os.getenv("GODEL_INCLUDE_ADVERSARIAL_EVAL", "1").lower()
+            not in ("0", "false", "no")
+        ):
+            for index, prompt in enumerate(ADVERSARIAL_FACTUAL_PROMPTS, start=1):
+                selected.append(
+                    EvaluationCase(
+                        task_type="factual_qa",
+                        task_id=f"adv_factual_{index}",
+                        split="adversarial",
+                        inline_prompt=prompt,
+                    )
+                )
         return selected
 
     async def evaluate(
@@ -179,12 +203,19 @@ class StrategyEvaluator:
         family_scores: dict[str, list[float]] = {}
         diagnostics: dict[str, Any] = {
             "mode": self.mode,
-            "verifier": "heuristic_or_llm" if self.allow_heuristic else "llm_only",
-            "allow_heuristic": self.allow_heuristic,
-            "providers": describe_provider_configs(),
+            "verifier": (
+                "deterministic" if self.mode == "deterministic" else "llm_required"
+            ),
+            "deterministic_fallback_allowed": self.allow_deterministic_fallback,
+            "providers": describe_provider_configs(order_env="GODEL_VERIFIER_PROVIDER_ORDER"),
             "cases": [],
             "agent_challenges_mixed": 0,
-            "heuristic_solver_uses": 0,
+            "deterministic_solver_uses": 0,
+            "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "provider_roles": {
+                "agent_order_env": os.getenv("GODEL_AGENT_PROVIDER_ORDER", ""),
+                "verifier_order_env": os.getenv("GODEL_VERIFIER_PROVIDER_ORDER", ""),
+            },
         }
         source_counts: dict[str, int] = {}
 
@@ -215,6 +246,10 @@ class StrategyEvaluator:
                 score, _, _ = await task_obj.grade(instance, solution)
                 score = max(0.0, min(1.0, float(score)))
             except Exception as exc:
+                if not self.allow_deterministic_fallback:
+                    raise RuntimeError(
+                        f"LLM strategy evaluation failed for {case.task_type}/{case.task_id}: {exc}"
+                    ) from exc
                 logger.warning("Strategy evaluation failed for %s/%s: %s", case.task_type, case.task_id, exc)
                 score = 0.0
                 source = "error"
@@ -224,7 +259,9 @@ class StrategyEvaluator:
             family_scores.setdefault(case.task_type, []).append(score)
             source_counts[source] = source_counts.get(source, 0) + 1
             if source in ("deterministic", "deterministic_fallback"):
-                diagnostics["heuristic_solver_uses"] += 1
+                diagnostics["deterministic_solver_uses"] += 1
+            for key, value in self.last_usage.items():
+                diagnostics["token_usage"][key] = diagnostics["token_usage"].get(key, 0) + value
             diagnostics["cases"].append(
                 {
                     "key": key,
@@ -258,14 +295,15 @@ class StrategyEvaluator:
         reference: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         self.last_error = None
+        self.last_usage = {}
 
         if not self.clients:
-            if self.mode == "llm" or not self.allow_heuristic:
+            if not self.allow_deterministic_fallback:
                 raise RuntimeError(
                     "no LLM clients available for strategy evaluation "
-                    f"(mode={self.mode!r}, allow_heuristic={self.allow_heuristic}). "
-                    "Set API keys (OPENAI_API_KEY, HF token, etc.) or set "
-                    "GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=1 for local heuristic simulation only."
+                    f"(mode={self.mode!r}). Set API keys (OPENAI_API_KEY, HF_TOKEN, "
+                    "API_KEY/API_BASE_URL, etc.) or explicitly set "
+                    "GODEL_STRATEGY_EVAL_MODE=deterministic for local tests only."
                 )
             return (
                 solve_task(
@@ -309,13 +347,23 @@ class StrategyEvaluator:
                             {"role": "user", "content": user_prompt},
                         ],
                         temperature=0.2,
-                        max_tokens=900,
+                        max_tokens=self.max_tokens,
                     ),
                     timeout=self.timeout,
                 )
-                content = response.choices[0].message.content or ""
+                choices = getattr(response, "choices", None) or []
+                if not choices or getattr(choices[0], "message", None) is None:
+                    raise ValueError("strategy evaluator returned no chat choices")
+                content = choices[0].message.content or ""
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    self.last_usage = {
+                        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+                        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+                    }
                 if content.strip():
-                    return content.strip(), f"llm:{provider_name}"
+                    return content.strip(), f"llm:{provider_name}:{model_name}"
                 raise ValueError("strategy evaluator returned an empty completion")
             except Exception as exc:
                 message = ProviderCircuitBreaker.record_failure(provider_name, exc)
@@ -327,11 +375,11 @@ class StrategyEvaluator:
                 )
 
         self.last_error = "; ".join(errors) if errors else "no enabled providers"
-        if self.mode == "llm" or not self.allow_heuristic:
+        if not self.allow_deterministic_fallback:
             raise RuntimeError(
                 f"LLM strategy evaluation required but all providers failed: {self.last_error}"
             )
-        logger.info("LLM strategy solve failed; using deterministic fallback: %s", self.last_error)
+        logger.info("LLM strategy solve failed; using explicit deterministic fallback: %s", self.last_error)
 
         return (
             solve_task(

@@ -114,7 +114,15 @@ def _first_env(*names: str) -> str | None:
     return None
 
 
-def _build_custom_provider() -> ProviderConfig | None:
+def _role_model_env(order_env: str) -> str | None:
+    if order_env == "GODEL_AGENT_PROVIDER_ORDER":
+        return _env("GODEL_AGENT_MODEL_NAME")
+    if order_env == "GODEL_VERIFIER_PROVIDER_ORDER":
+        return _env("GODEL_VERIFIER_MODEL_NAME")
+    return None
+
+
+def _build_custom_provider(order_env: str = "GODEL_PROVIDER_ORDER") -> ProviderConfig | None:
     api_key = _env("API_KEY") or _env("CUSTOM_API_KEY") or _env("OPENROUTER_API_KEY")
     base_url = (
         _env("CUSTOM_API_BASE_URL")
@@ -125,7 +133,8 @@ def _build_custom_provider() -> ProviderConfig | None:
     if not api_key or not base_url:
         return None
     model_name = (
-        _env("CUSTOM_MODEL_NAME")
+        _role_model_env(order_env)
+        or _env("CUSTOM_MODEL_NAME")
         or _env("OPENROUTER_MODEL_NAME")
         or _global_model_name()
         or DEFAULT_ROUTER_MODEL
@@ -138,7 +147,7 @@ def _build_custom_provider() -> ProviderConfig | None:
     )
 
 
-def _build_openai_provider() -> ProviderConfig | None:
+def _build_openai_provider(order_env: str = "GODEL_PROVIDER_ORDER") -> ProviderConfig | None:
     api_key = _env("OPENAI_API_KEY")
     if not api_key:
         return None
@@ -148,7 +157,7 @@ def _build_openai_provider() -> ProviderConfig | None:
     if not base_url and legacy_base_url and not _env("API_KEY") and not _env("HF_TOKEN"):
         base_url = legacy_base_url
 
-    model_name = _openai_model_name()
+    model_name = _role_model_env(order_env) or _openai_model_name()
     return ProviderConfig(
         name="openai",
         api_key=api_key,
@@ -228,8 +237,8 @@ def _build_ollama_provider() -> ProviderConfig | None:
     )
 
 
-def _provider_order() -> list[str]:
-    raw = _env("GODEL_PROVIDER_ORDER")
+def _provider_order(env_name: str = "GODEL_PROVIDER_ORDER") -> list[str]:
+    raw = _env(env_name) or _env("GODEL_PROVIDER_ORDER")
     if not raw:
         return list(DEFAULT_PROVIDER_ORDER)
 
@@ -240,13 +249,10 @@ def _provider_order() -> list[str]:
             continue
         order.append(name)
 
-    for name in DEFAULT_PROVIDER_ORDER:
-        if name not in order:
-            order.append(name)
     return order
 
 
-def load_provider_configs() -> list[ProviderConfig]:
+def load_provider_configs(*, order_env: str = "GODEL_PROVIDER_ORDER") -> list[ProviderConfig]:
     """
     Load all configured LLM providers in priority order.
     
@@ -261,14 +267,14 @@ def load_provider_configs() -> list[ProviderConfig]:
     global _warned_no_providers, _logged_provider_info
     
     candidates = {
-        "custom": _build_custom_provider(),
-        "openai": _build_openai_provider(),
+        "custom": _build_custom_provider(order_env),
+        "openai": _build_openai_provider(order_env),
         "huggingface": _build_huggingface_provider(),
         "ollama": _build_ollama_provider(),
     }
 
     configs: list[ProviderConfig] = []
-    for name in _provider_order():
+    for name in _provider_order(order_env):
         config = candidates.get(name)
         if config is not None:
             configs.append(config)
@@ -292,8 +298,8 @@ def load_provider_configs() -> list[ProviderConfig]:
     return configs
 
 
-def load_provider_config() -> ProviderConfig:
-    configs = load_provider_configs()
+def load_provider_config(*, order_env: str = "GODEL_PROVIDER_ORDER") -> ProviderConfig:
+    configs = load_provider_configs(order_env=order_env)
     if configs:
         return configs[0]
     return ProviderConfig(
@@ -304,7 +310,7 @@ def load_provider_config() -> ProviderConfig:
     )
 
 
-def describe_provider_configs() -> list[dict[str, str | bool | None]]:
+def describe_provider_configs(*, order_env: str = "GODEL_PROVIDER_ORDER") -> list[dict[str, str | bool | None]]:
     return [
         {
             "name": config.name,
@@ -314,7 +320,7 @@ def describe_provider_configs() -> list[dict[str, str | bool | None]]:
             "disabled": ProviderCircuitBreaker.is_disabled(config.name),
             "disabled_reason": ProviderCircuitBreaker.reason(config.name),
         }
-        for config in load_provider_configs()
+        for config in load_provider_configs(order_env=order_env)
     ]
 
 

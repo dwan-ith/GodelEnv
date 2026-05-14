@@ -78,13 +78,13 @@ This is absolutely central. The Governor implements multiple gates to prevent re
 GodelEnv behaves as a fully compliant OpenEnv service, making it compatible with existing agentic RL pipelines.
 
 - **OpenEnv Interface**: Conforms strictly to `openenv-core>=0.2.3` standards with standard `/reset`, `/step`, and `/state` API surfaces.
-- **Hybrid Runtime**: Supports a dual-execution path. It uses an LLM-first behavior (`auto`) for rigorous grading, agent actions, and strategy evaluation, but gracefully fails over to deterministic grading if provider credentials are stale or rate-limited.
+- **LLM-Required Self-Improvement Runtime**: Strategy proposals and held-out strategy evaluation require a configured LLM provider by default. Deterministic local helpers still exist for unit tests and dataset generation, but they must be explicitly enabled and are not treated as neutral self-improvement evidence.
 - **Multi-Channel Reward**: Discards the single scalar reward in favor of a detailed, multi-axis vector including `task_score_delta`, `format_compliance`, `generalization_score`, `robustness_score`, and `anti_hack_penalty`.
 - **Guardrails**: Includes robust checks for empty responses, repetition, forbidden code patterns, canary leakage, and strategy length limits.
 
 ### Supported Providers
 
-GodelEnv supports multiple LLM providers with automatic failover. **LLM mode is the default** - deterministic fallback only occurs when all providers fail.
+GodelEnv supports multiple LLM providers with provider failover. **LLM mode is the default** for agent actions and strategy evaluation; deterministic fallback is opt-in only for local tests.
 
 **Provider Priority** (configurable via `GODEL_PROVIDER_ORDER`):
 1. `huggingface` - HF Router / Inference API
@@ -138,15 +138,33 @@ python demo.py  # Uses local model!
 
 **Runtime Flags**:
 ```bash
-# These default to "auto" (LLM-first with deterministic fallback)
+# LLM-required self-improvement runtime
 set GODEL_GRADING_MODE=auto
-set GODEL_STRATEGY_EVAL_MODE=auto
+set GODEL_STRATEGY_EVAL_MODE=llm
+set GODEL_AGENT_MODE=llm
+set GODEL_ALLOW_DETERMINISTIC_FALLBACK=0
 
 # Customize provider priority
 set GODEL_PROVIDER_ORDER=ollama,huggingface,openai
 
-# Require LLM (error instead of fallback)
-set GODEL_REQUIRE_LLM=1
+# Stronger proposer/verifier separation. With OpenRouter or another
+# OpenAI-compatible router, these can be two different model IDs under the
+# same provider account.
+set GODEL_AGENT_PROVIDER_ORDER=custom
+set GODEL_VERIFIER_PROVIDER_ORDER=custom
+set GODEL_AGENT_MODEL_NAME=qwen/qwen-2.5-7b-instruct
+set GODEL_VERIFIER_MODEL_NAME=qwen/qwen3.6-flash
+set GODEL_REQUIRE_PROVIDER_SEPARATION=1
+
+# Token/case budgets for live eval cost control
+set GODEL_AGENT_MAX_TOKENS=2048
+set GODEL_EVAL_MAX_TOKENS=900
+set GODEL_STRATEGY_EVAL_MAX_CASES=8
+
+# Local deterministic tests only
+set GODEL_STRATEGY_EVAL_MODE=deterministic
+set GODEL_AGENT_MODE=deterministic
+set GODEL_ALLOW_DETERMINISTIC_FALLBACK=1
 ```
 
 **Verify your setup**:
@@ -158,7 +176,7 @@ python hybrid_smoke.py --require-llm
 
 **API diagnostics**: The `/demo/act` endpoint returns:
 - `is_llm_generated`: Whether the action came from an LLM
-- `agent_source`: Either `llm:provider_name` or `deterministic_fallback`
+- `agent_source`: `llm:provider_name:model_id` in normal runtime, or deterministic only when local fallback is explicitly enabled
 - `agent_error`: The error message if LLM failed
 
 **Provider status**: The `/demo/provider-status` endpoint shows:
@@ -166,24 +184,40 @@ python hybrid_smoke.py --require-llm
 - Which providers are configured and their status
 - Circuit breaker state (if a provider was disabled due to errors)
 
-**Require LLM mode**: Set `GODEL_REQUIRE_LLM=1` to error instead of falling back:
+**Require LLM mode**: This is the default for recursive strategy improvement:
 ```bash
-set GODEL_REQUIRE_LLM=1
+set GODEL_AGENT_MODE=llm
+set GODEL_STRATEGY_EVAL_MODE=llm
+set GODEL_ALLOW_DETERMINISTIC_FALLBACK=0
 python demo.py  # Will fail with 503 if no LLM available
 ```
 
-### Heuristic Fallback Behavior
+### Autonomous Self-Improvement Evaluation
 
-When LLM providers are unavailable, the environment uses an intelligent heuristic fallback:
-- **Varied patches**: Unlike static hardcoded responses, heuristic patches analyze the current strategy and target specific missing capabilities
-- **Weakness-aware**: Patches prioritize improvements based on recent failures and weak downstream scores
-- **Transparent labeling**: All heuristic actions are labeled with `[HEURISTIC]` in their descriptions
+Run a repeated strategy-improvement loop with persistent lineage and metrics:
+```bash
+python self_improve.py --iterations 5 --max-patch-attempts 2 --provider-order custom
+```
+
+Run a research report with multiple seeds, confidence intervals, regression slope, token accounting, and optional static-baseline comparison:
+```bash
+python research_eval.py --seeds 11 22 33 --iterations 3 --max-patch-attempts 2 --include-static-baseline --provider-order custom
+```
+
+For independent proposer/verifier models:
+```bash
+python research_eval.py --seeds 11 22 33 --iterations 3 --provider-order custom --agent-model qwen/qwen-2.5-7b-instruct --verifier-model qwen/qwen3.6-flash
+```
+
+### Deterministic Local Mode
+
+The reference-grounded deterministic policy remains available for unit tests, smoke-free development, and teacher traces. It is not used as evidence for self-improvement unless explicitly requested with `GODEL_ALLOW_DETERMINISTIC_FALLBACK=1` or deterministic modes.
 
 ## Verifiable Training Pipeline
 
 GodelEnv ships with a reproducible training pipeline (`train.py`). **Default (`--generation-mode freeform`)** trains the model to generate full JSON actions end-to-end, which is the primary training mode. The environment rewards structured action format compliance and task correctness.
 
-**Neutral held-out evaluation (not heuristic simulation):** set `GODEL_STRATEGY_EVAL_ALLOW_HEURISTIC=0` and provide API keys so `StrategyEvaluator` never falls back to `build_heuristic_solution`. For Colab/GPU runs, use [train_colab.ipynb](train_colab.ipynb) or [train_colab.py](train_colab.py).
+**Neutral held-out evaluation (not heuristic simulation):** use `GODEL_STRATEGY_EVAL_MODE=llm`, `GODEL_AGENT_MODE=llm`, and `GODEL_ALLOW_DETERMINISTIC_FALLBACK=0` with working provider credentials. For Colab/GPU runs, use [train_colab.ipynb](train_colab.ipynb) or [train_colab.py](train_colab.py).
 
 1. **Prompt Collection**: Samples initial states from the live environment.
 2. **Warm-Start**: Teaches the model the `Action` / `StrategyPatch` JSON schema via teacher demonstrations.

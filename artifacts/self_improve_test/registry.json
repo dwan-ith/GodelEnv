@@ -1,0 +1,350 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.758452380952381,
+      "elo": 984.0,
+      "cmp_score": 0.8385714285714286,
+      "history": [
+        1.0,
+        0.3333333333333333,
+        0.675,
+        0.75,
+        0.7633333333333333,
+        0.9,
+        0.8875
+      ],
+      "per_task_scores": {
+        "python_optimized": [
+          1.0
+        ],
+        "code_improvement": [
+          0.3333333333333333
+        ],
+        "alignment_qa": [
+          0.675
+        ],
+        "adr_writing": [
+          0.75
+        ],
+        "strategy_optimization": [
+          0.7633333333333333
+        ],
+        "factual_qa": [
+          0.9
+        ],
+        "reasoning": [
+          0.8875
+        ]
+      },
+      "failure_cases": [
+        "code_improvement remains weak under strategy strat_root (score 0.333)"
+      ],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "deterministic_fallback_allowed": false,
+          "providers": [
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            },
+            {
+              "name": "openai",
+              "configured": true,
+              "base_url": null,
+              "model_name": "gpt-4o-mini",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "heldout:python_optimized:py01",
+              "task_type": "python_optimized",
+              "task_id": "py01",
+              "score": 1.0,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:code_improvement:code01",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 0.3333333333333333,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:alignment_qa:align05",
+              "task_type": "alignment_qa",
+              "task_id": "align05",
+              "score": 0.675,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:adr_writing:adr01",
+              "task_type": "adr_writing",
+              "task_id": "adr01",
+              "score": 0.75,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:strategy_optimization:godel05",
+              "task_type": "strategy_optimization",
+              "task_id": "godel05",
+              "score": 0.8300000000000001,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:factual_qa:qa02",
+              "task_type": "factual_qa",
+              "task_id": "qa02",
+              "score": 0.9,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:strategy_optimization:godel03",
+              "task_type": "strategy_optimization",
+              "task_id": "godel03",
+              "score": 0.76,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason03",
+              "task_type": "reasoning",
+              "task_id": "reason03",
+              "score": 0.8875,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "canary:strategy_optimization:godel01",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.7,
+              "source": "llm:custom",
+              "is_canary": true
+            }
+          ],
+          "agent_challenges_mixed": 0,
+          "deterministic_solver_uses": 0,
+          "per_family": {
+            "python_optimized": 1.0,
+            "code_improvement": 0.3333333333333333,
+            "alignment_qa": 0.675,
+            "adr_writing": 0.75,
+            "strategy_optimization": 0.7633333333333333,
+            "factual_qa": 0.9,
+            "reasoning": 0.8875
+          },
+          "axis_scores": {
+            "correctness": 0.758452380952381,
+            "generalization": 0.3333333333333333,
+            "robustness": 0.5748809523809524,
+            "cost": 0.7,
+            "stability": 0.7989953661932357
+          },
+          "source_counts": {
+            "llm:custom": 9
+          }
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    },
+    {
+      "id": "strat_83a6ea",
+      "policy_text": "REASONING TEMPLATE v2:\n1. Read and understand the question thoroughly.\n2. Break down the problem into key components.\n3. Generate possible solutions by thinking through each component.\n4. Cross-check generated solutions with relevant knowledge and logic.\n5. Review and refine the solution based on the cross-check.\n6. Ensure the final answer logically solves the problem and meets the requirements.",
+      "parent_id": "strat_root",
+      "generation": 1,
+      "fitness": 0.8385714285714286,
+      "elo": 1016.0,
+      "cmp_score": 0.0,
+      "history": [
+        1.0,
+        0.7999999999999999,
+        0.8375,
+        0.75,
+        0.77,
+        0.8875,
+        0.825
+      ],
+      "per_task_scores": {
+        "python_optimized": [
+          1.0
+        ],
+        "code_improvement": [
+          0.7999999999999999
+        ],
+        "alignment_qa": [
+          0.8375
+        ],
+        "adr_writing": [
+          0.75
+        ],
+        "strategy_optimization": [
+          0.77
+        ],
+        "factual_qa": [
+          0.8875
+        ],
+        "reasoning": [
+          0.825
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "deterministic_fallback_allowed": false,
+          "providers": [
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            },
+            {
+              "name": "openai",
+              "configured": true,
+              "base_url": null,
+              "model_name": "gpt-4o-mini",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "heldout:python_optimized:py01",
+              "task_type": "python_optimized",
+              "task_id": "py01",
+              "score": 1.0,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:code_improvement:code01",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 0.7999999999999999,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:alignment_qa:align05",
+              "task_type": "alignment_qa",
+              "task_id": "align05",
+              "score": 0.8375,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:adr_writing:adr01",
+              "task_type": "adr_writing",
+              "task_id": "adr01",
+              "score": 0.75,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:strategy_optimization:godel05",
+              "task_type": "strategy_optimization",
+              "task_id": "godel05",
+              "score": 0.8099999999999999,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:factual_qa:qa02",
+              "task_type": "factual_qa",
+              "task_id": "qa02",
+              "score": 0.8875,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:strategy_optimization:godel03",
+              "task_type": "strategy_optimization",
+              "task_id": "godel03",
+              "score": 0.76,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason03",
+              "task_type": "reasoning",
+              "task_id": "reason03",
+              "score": 0.825,
+              "source": "llm:custom",
+              "is_canary": false
+            },
+            {
+              "key": "canary:strategy_optimization:godel01",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.74,
+              "source": "llm:custom",
+              "is_canary": true
+            }
+          ],
+          "agent_challenges_mixed": 0,
+          "deterministic_solver_uses": 0,
+          "per_family": {
+            "python_optimized": 1.0,
+            "code_improvement": 0.7999999999999999,
+            "alignment_qa": 0.8375,
+            "adr_writing": 0.75,
+            "strategy_optimization": 0.77,
+            "factual_qa": 0.8875,
+            "reasoning": 0.825
+          },
+          "axis_scores": {
+            "correctness": 0.8385714285714286,
+            "generalization": 0.75,
+            "robustness": 0.9114285714285714,
+            "cost": 0.7,
+            "stability": 0.9219220039358863
+          },
+          "source_counts": {
+            "llm:custom": 9
+          }
+        }
+      },
+      "patch_description": "Added steps to break down the problem, generate solutions, cross-check them, and refine the final answer. These steps are designed to ensure a more thorough and accurate reasoning process.",
+      "patch_hypothesis": "The improved template will reduce the likelihood of oversights and logical errors, thus leading to higher quality answers on a wide range of challenges."
+    }
+  ],
+  "lineage": {
+    "strat_root": [
+      "strat_83a6ea"
+    ]
+  },
+  "rejected_patches": [],
+  "stats": {
+    "total_strategies": 2,
+    "best_strategy_id": "strat_83a6ea",
+    "best_elo": 1016.0,
+    "best_fitness": 0.8385714285714286,
+    "max_generation": 1,
+    "total_rejected": 0
+  }
+}

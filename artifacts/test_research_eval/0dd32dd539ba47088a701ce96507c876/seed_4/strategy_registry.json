@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.49,
+      "elo": 984.0,
+      "cmp_score": 0.72,
+      "history": [
+        0.5,
+        0.48,
+        0.49
+      ],
+      "per_task_scores": {
+        "factual_qa": [
+          0.5
+        ],
+        "reasoning": [
+          0.48
+        ],
+        "strategy_optimization": [
+          0.49
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "per_family": {
+            "factual_qa": 0.5,
+            "reasoning": 0.48,
+            "strategy_optimization": 0.49
+          },
+          "axis_scores": {
+            "correctness": 0.49,
+            "generalization": 0.48,
+            "robustness": 0.96,
+            "cost": 0.7,
+            "stability": 0.95
+          },
+          "source_counts": {
+            "llm:test": 3
+          },
+          "providers": [
+            {
+              "name": "test",
+              "configured": true
+            }
+          ],
+          "agent_challenges_mixed": 0
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    },
+    {
+      "id": "strat_7c9855",
+      "policy_text": "1. Decompose the task into claims and assumptions.\n2. Gather evidence for every important claim.\n3. Mark uncertainty where the evidence is incomplete.\n4. Verify that the final answer addresses the exact prompt.\n5. Reflect on repeated failures before proposing the next patch.",
+      "parent_id": "strat_root",
+      "generation": 1,
+      "fitness": 0.72,
+      "elo": 1016.0,
+      "cmp_score": 0.0,
+      "history": [
+        0.74,
+        0.7,
+        0.72,
+        0.74,
+        0.7,
+        0.72,
+        0.74,
+        0.7,
+        0.72
+      ],
+      "per_task_scores": {
+        "factual_qa": [
+          0.74,
+          0.74,
+          0.74
+        ],
+        "reasoning": [
+          0.7,
+          0.7,
+          0.7
+        ],
+        "strategy_optimization": [
+          0.72,
+          0.72,
+          0.72
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "llm",
+          "verifier": "llm_required",
+          "per_family": {
+            "factual_qa": 0.74,
+            "reasoning": 0.7,
+            "strategy_optimization": 0.72
+          },
+          "axis_scores": {
+            "correctness": 0.7200000000000001,
+            "generalization": 0.7,
+            "robustness": 0.96,
+            "cost": 0.7,
+            "stability": 0.95
+          },
+          "source_counts": {
+            "llm:test": 3
+          },
+          "providers": [
+            {
+              "name": "test",
+              "configured": true
+            }
+          ],
+          "agent_challenges_mixed": 0
+        }
+      },
+      "patch_description": "Adds evidence, uncertainty, verification, and reflection.",
+      "patch_hypothesis": "The stronger loop should improve held-out task performance."
+    }
+  ],
+  "lineage": {
+    "strat_root": [
+      "strat_7c9855"
+    ]
+  },
+  "rejected_patches": [
+    {
+      "parent_id": "strat_7c9855",
+      "accepted": false,
+      "parent_utility": 0.7719999999999999,
+      "child_utility": 0.7719999999999999,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0000 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 3,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7200000000000001,
+          "generalization": 0.7,
+          "robustness": 0.96,
+          "cost": 0.7,
+          "stability": 0.95
+        },
+        "child": {
+          "correctness": 0.7200000000000001,
+          "generalization": 0.7,
+          "robustness": 0.96,
+          "cost": 0.7,
+          "stability": 0.95
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.00026666666666666717,
+        "mean_child_score": 0.7200000000000001
+      }
+    },
+    {
+      "parent_id": "strat_7c9855",
+      "accepted": false,
+      "parent_utility": 0.7719999999999999,
+      "child_utility": 0.7719999999999999,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0000 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 3,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7200000000000001,
+          "generalization": 0.7,
+          "robustness": 0.96,
+          "cost": 0.7,
+          "stability": 0.95
+        },
+        "child": {
+          "correctness": 0.7200000000000001,
+          "generalization": 0.7,
+          "robustness": 0.96,
+          "cost": 0.7,
+          "stability": 0.95
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.00026666666666666717,
+        "mean_child_score": 0.7200000000000001
+      }
+    }
+  ],
+  "stats": {
+    "total_strategies": 2,
+    "best_strategy_id": "strat_7c9855",
+    "best_elo": 1016.0,
+    "best_fitness": 0.72,
+    "max_generation": 1,
+    "total_rejected": 2
+  }
+}

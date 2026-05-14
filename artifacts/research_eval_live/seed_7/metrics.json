@@ -1,0 +1,55 @@
+{
+  "attempts": 1,
+  "patches_proposed": 1,
+  "patches_accepted": 0,
+  "patches_rejected": 1,
+  "acceptance_rate": 0.0,
+  "llm_evaluated_attempts": 1,
+  "all_strategy_evals_llm_backed": true,
+  "deterministic_eval_attempts": 0,
+  "provider_separation_ok": false,
+  "token_usage": {
+    "prompt_tokens": 3225,
+    "completion_tokens": 3627,
+    "total_tokens": 6852,
+    "estimated_cost_usd": 0.0
+  },
+  "best_strategy_id": "strat_root",
+  "best_strategy_generation": 0,
+  "best_strategy_elo": 1000.0,
+  "registry": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.8014236111111112,
+    "max_generation": 0,
+    "total_rejected": 1
+  },
+  "events": [
+    {
+      "iteration": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel01",
+      "agent_source": "llm:custom",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": -0.345,
+      "score": 0.6319435854156151,
+      "improvement": 0.0,
+      "rejection_reasons": [
+        "Strategy regressed on 5/11 tasks (45% > 35%)"
+      ],
+      "source_counts": {
+        "llm:custom": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 3225,
+        "completion_tokens": 3627,
+        "total_tokens": 6852
+      },
+      "provider_separation_ok": false,
+      "error": null
+    }
+  ],
+  "errors": []
+}

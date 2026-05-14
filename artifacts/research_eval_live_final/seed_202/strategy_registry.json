@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.0,
+      "elo": 1000.0,
+      "cmp_score": 0.0,
+      "history": [],
+      "per_task_scores": {},
+      "failure_cases": [],
+      "metadata": {},
+      "patch_description": null,
+      "patch_hypothesis": null
+    }
+  ],
+  "lineage": {},
+  "rejected_patches": [],
+  "stats": {
+    "total_strategies": 1,
+    "best_strategy_id": "strat_root",
+    "best_elo": 1000.0,
+    "best_fitness": 0.0,
+    "max_generation": 0,
+    "total_rejected": 0
+  }
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Dict
 
 from dotenv import load_dotenv
@@ -29,10 +30,15 @@ logger = logging.getLogger("godel_env.agent")
 
 
 class AutoAgent:
-    """LLM-backed agent with a deterministic local fallback."""
+    """LLM-backed agent.
+
+    Deterministic local actions are still available for tests, but only when
+    explicitly requested with GODEL_AGENT_MODE=deterministic or
+    GODEL_ALLOW_DETERMINISTIC_FALLBACK=1.
+    """
 
     def __init__(self, max_concurrent: int = 5, timeout: int = 60) -> None:
-        self.providers = load_provider_configs()
+        self.providers = load_provider_configs(order_env="GODEL_AGENT_PROVIDER_ORDER")
         self.clients: list[tuple[str, str, AsyncOpenAI]] = []
         for provider in self.providers:
             if not provider.api_key:
@@ -50,9 +56,18 @@ class AutoAgent:
 
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self.timeout = timeout
-        self.last_source = "deterministic"
+        self.max_tokens = int(os.getenv("GODEL_AGENT_MAX_TOKENS", "2048") or 2048)
+        self.mode = os.getenv("GODEL_AGENT_MODE", "llm").strip().lower()
+        self.allow_deterministic_fallback = (
+            self.mode == "deterministic"
+            or os.getenv("GODEL_ALLOW_DETERMINISTIC_FALLBACK", "0").lower()
+            in ("1", "true", "yes")
+        )
+        self.last_source = "none"
         self.last_provider: str | None = None
+        self.last_model: str | None = None
         self.last_error: str | None = None
+        self.last_usage: dict[str, int] = {}
 
     async def act(
         self,
@@ -64,12 +79,20 @@ class AutoAgent:
         recent_failures: list[str] | None = None,
         downstream_scores: Dict[str, float] | None = None,
     ) -> GodelAction:
-        self.last_source = "deterministic"
+        self.last_source = "none"
         self.last_provider = None
+        self.last_model = None
         self.last_error = None
+        self.last_usage = {}
 
         if not self.clients:
             self.last_error = "no API client configured"
+            if not self.allow_deterministic_fallback:
+                raise RuntimeError(
+                    "LLM agent required but no API client is configured. Set a provider "
+                    "credential or explicitly set GODEL_AGENT_MODE=deterministic for local tests."
+                )
+            self.last_source = "deterministic"
             return build_heuristic_action(
                 task_prompt,
                 task_type,
@@ -105,6 +128,35 @@ class AutoAgent:
             if weak_areas:
                 score_hint = f"\nWEAK TASK AREAS (score < 0.5): {', '.join(weak_areas)}"
 
+        if prefer_patch:
+            action_schema = """Return raw JSON with exactly this recursive self-improvement shape:
+{
+  "solution": "a concrete demonstration of the improved strategy on this task",
+  "edit_type": "rewrite",
+  "strategy_note": "what this patch addresses",
+  "improved_strategy": "THE COMPLETE REVISED STRATEGY TEXT with specific reasoning steps",
+  "diff_description": "what exactly changed and why",
+  "hypothesis": "testable prediction about why this improves held-out performance",
+  "target_weaknesses": ["specific weakness 1", "specific weakness 2"],
+  "agent_challenge": null
+}
+
+Do not return a direct-answer-only JSON object. The response must include improved_strategy."""
+            acceptance_contract = """GOVERNOR ACCEPTANCE CONTRACT:
+- The child strategy is evaluated against the parent on held-out factual QA, code repair, Python optimization, reasoning, alignment, ADR writing, strategy optimization, adversarial factual cases, and canaries.
+- It must improve weighted utility and avoid broad regressions. More than 35% regressed cases is rejected.
+- Do not remove useful existing capabilities. Preserve them and add targeted cross-domain checks.
+- The strategy must include: decomposition, evidence grounding, counterargument/edge-case analysis, uncertainty marking, code/test/complexity checks, architecture trade-off checks, safety/alignment risk checks, adversarial anti-gaming checks, and final verification against the exact prompt.
+- Do not mention evaluator internals such as rubric_scores, total_score, hidden tests, or scoring functions."""
+        else:
+            action_schema = """Return raw JSON with exactly this direct answer-improvement shape:
+{
+  "solution": "your improved solution",
+  "edit_type": "rewrite",
+  "strategy_note": "brief explanation"
+}"""
+            acceptance_contract = ""
+
         system_prompt = f"""You are a self-improving AI agent inside Godel Env.
 Your goal is recursive self-improvement: propose changes to your own reasoning strategy that will improve performance on held-out tasks.
 
@@ -119,26 +171,13 @@ IMPORTANT INSTRUCTIONS:
 3. Do NOT propose generic improvements. Each patch should have a clear hypothesis about WHY it will help.
 4. The strategy will be evaluated on held-out tasks, so improvements must generalize.
 
-Return raw JSON (no markdown code blocks).
+{acceptance_contract}
 
-For direct answer improvement:
-{{
-  "solution": "your improved solution",
-  "edit_type": "rewrite",
-  "strategy_note": "brief explanation"
-}}
+{action_schema}
 
-For recursive self-improvement (PREFERRED for strategy_optimization tasks):
-{{
-  "solution": "a demonstration of the improved strategy on this task",
-  "edit_type": "rewrite",
-  "strategy_note": "what this patch addresses",
-  "improved_strategy": "THE COMPLETE REVISED STRATEGY TEXT - be specific about reasoning steps",
-  "diff_description": "what exactly changed and why",
-  "hypothesis": "testable prediction about why this will improve held-out performance",
-  "target_weaknesses": ["specific weakness 1", "specific weakness 2"],
-  "agent_challenge": null
-}}
+Compatibility: if you nest the patch, use "strategy_patch": {{"improved_strategy": "...", "diff_description": "...", "hypothesis": "...", "target_weaknesses": [...]}}.
+
+Return raw JSON only, with no markdown code blocks.
 
 Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "a verifiable, ≥20 char question to stress-test the strategy in future held-out eval"}}. Omit or use null to skip.
 
@@ -162,7 +201,7 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt},
                             ],
-                            max_tokens=2048,
+                            max_tokens=self.max_tokens,
                             **(
                                 {"response_format": {"type": "json_object"}}
                                 if provider_name == "openai"
@@ -172,17 +211,32 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
                         timeout=self.timeout,
                     )
 
-                content = (response.choices[0].message.content or "").strip()
+                choices = getattr(response, "choices", None) or []
+                if not choices or getattr(choices[0], "message", None) is None:
+                    raise ValueError("agent provider returned no chat choices")
+                content = (choices[0].message.content or "").strip()
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    self.last_usage = {
+                        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+                        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+                    }
                 data = parse_llm_json_object(content)
                 patch = None
-                if "improved_strategy" in data:
+                raw_patch = data.get("strategy_patch") if isinstance(data.get("strategy_patch"), dict) else data
+                if isinstance(raw_patch, dict) and "improved_strategy" in raw_patch:
                     patch = StrategyPatch(
-                        improved_strategy=str(data.get("improved_strategy", "")),
-                        diff_description=str(data.get("diff_description", "")),
-                        hypothesis=str(data.get("hypothesis", "")),
+                        improved_strategy=str(raw_patch.get("improved_strategy", "")),
+                        diff_description=str(raw_patch.get("diff_description", "")),
+                        hypothesis=str(raw_patch.get("hypothesis", "")),
                         target_weaknesses=[
-                            str(item) for item in data.get("target_weaknesses", [])
+                            str(item) for item in raw_patch.get("target_weaknesses", [])
                         ],
+                    )
+                if prefer_patch and patch is None:
+                    raise ValueError(
+                        "strategy_optimization requires a StrategyPatch with improved_strategy"
                     )
 
                 agent_challenge: AgentChallengeProposal | None = None
@@ -196,8 +250,9 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
                     except Exception:
                         agent_challenge = None
 
-                self.last_source = f"llm:{provider_name}"
+                self.last_source = f"llm:{provider_name}:{model_name}"
                 self.last_provider = provider_name
+                self.last_model = model_name
                 self.last_error = None
                 return GodelAction(
                     solution=str(data.get("solution", current_solution)),
@@ -217,6 +272,10 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
 
         self.last_source = "deterministic_fallback"
         self.last_error = "; ".join(errors) if errors else "no enabled providers"
+        if not self.allow_deterministic_fallback:
+            raise RuntimeError(
+                f"LLM agent required but all providers failed: {self.last_error}"
+            )
         return build_heuristic_action(
             task_prompt,
             task_type,

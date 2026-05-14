@@ -35,6 +35,8 @@ train = [
 
 [project.scripts]
 server = "server.app:main"
+godel-self-improve = "godel_engine.self_improve:main"
+godel-research-eval = "godel_engine.research_eval:main"
 
 [tool.setuptools.packages.find]
 include = ["godel_engine*", "server*"]

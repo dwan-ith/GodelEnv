@@ -197,15 +197,18 @@ training:
     strategy_eval: deterministic
 
 inference:
-  default_mode: hybrid
-  llm_first_with_fallback: true
+  default_mode: llm_required
+  llm_first_with_fallback: false
   description: >
-    LLM mode is the DEFAULT. Deterministic fallback only when all providers fail.
+    LLM mode is the DEFAULT for agent actions and strategy evaluation.
+    Deterministic fallback is opt-in for local tests only.
     Provider priority: huggingface > ollama > custom > openai
   hybrid_smoke_script: hybrid_smoke.py
   default_env_modes:
     grading: GODEL_GRADING_MODE=auto
-    strategy_eval: GODEL_STRATEGY_EVAL_MODE=auto
+    strategy_eval: GODEL_STRATEGY_EVAL_MODE=llm
+    agent: GODEL_AGENT_MODE=llm
+    deterministic_fallback: GODEL_ALLOW_DETERMINISTIC_FALLBACK=0
     provider_order: GODEL_PROVIDER_ORDER=huggingface,ollama,custom,openai
   providers:
     huggingface_router:

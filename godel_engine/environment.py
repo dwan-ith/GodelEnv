@@ -19,6 +19,7 @@ compatibility with existing training infrastructure.
 from __future__ import annotations
 
 import logging
+import os
 import random
 import uuid
 from typing import Dict, List, Optional
@@ -84,10 +85,14 @@ class GodelEnvironment:
         "godel": ["strategy_optimization"],
     }
 
-    def __init__(self, seed: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        seed: Optional[int] = None,
+        registry: Optional[StrategyRegistry] = None,
+    ) -> None:
         self.rng = random.Random(seed)
         self.tasks = {name: cls() for name, cls in self.TASKS.items()}
-        self.registry = StrategyRegistry(rng=self.rng)
+        self.registry = registry or StrategyRegistry(rng=self.rng)
         self.huxley = HuxleyTracker()
         self.governor = Governor()
         self.curriculum = CurriculumController()
@@ -169,6 +174,8 @@ class GodelEnvironment:
                 self.current_instance, self.current_solution
             )
         except Exception as exc:
+            if os.getenv("GODEL_GRADING_MODE", "auto").strip().lower() == "llm":
+                raise
             logger.exception("Initial grading failed for %s", self.current_task.name)
             self.current_task.last_grading_source = "deterministic"
             self.current_task.last_grading_error = f"initial grading exception: {type(exc).__name__}"
@@ -296,6 +303,9 @@ class GodelEnvironment:
                 "child_source_counts": child_diagnostics.get("source_counts", {}),
                 "providers": child_diagnostics.get("providers", []),
                 "last_error": child_diagnostics.get("last_error") or parent_diagnostics.get("last_error"),
+                "parent_token_usage": parent_diagnostics.get("token_usage", {}),
+                "child_token_usage": child_diagnostics.get("token_usage", {}),
+                "provider_roles": child_diagnostics.get("provider_roles", {}),
             },
         )
 
@@ -324,10 +334,15 @@ class GodelEnvironment:
             "reasons": decision.get("rejection_reasons", []),
         })
 
-        # Compute reward
+        # Compute reward against the strategy that actually remains active.
         child_utility = decision.get("child_utility", 0.0)
         parent_utility = decision.get("parent_utility", 0.0)
-        delta = child_utility - parent_utility
+        proposed_delta = child_utility - parent_utility
+        accepted_delta = proposed_delta if decision["accepted"] else min(0.0, proposed_delta)
+        active_scores = child_scores if decision["accepted"] else parent_scores
+        active_per_task = child_per_task if decision["accepted"] else parent_per_task
+        active_utility = child_utility if decision["accepted"] else parent_utility
+        delta = accepted_delta
         self.improvement_history.append(delta)
 
         breakdown = RewardBreakdown(
@@ -336,13 +351,25 @@ class GodelEnvironment:
             step_cost=-0.005,
             anti_hack_penalty=guard_result.penalty,
             patch_quality=patch_reward,
-            generalization_score=child_scores.get("generalization", 0.0) * 0.1,
-            robustness_score=child_scores.get("robustness", 0.0) * 0.05,
-            stability_score=child_scores.get("stability", 0.0) * 0.05,
+            generalization_score=(
+                active_scores.get("generalization", 0.0) * 0.1
+                if decision["accepted"]
+                else 0.0
+            ),
+            robustness_score=(
+                active_scores.get("robustness", 0.0) * 0.05
+                if decision["accepted"]
+                else 0.0
+            ),
+            stability_score=(
+                active_scores.get("stability", 0.0) * 0.05
+                if decision["accepted"]
+                else 0.0
+            ),
         )
         reward = breakdown.compute_total()
         self.reward_history.append(reward)
-        self.current_score = self._clamp(child_utility)
+        self.current_score = self._clamp(active_utility)
 
         # Termination logic
         plateau = (
@@ -360,9 +387,9 @@ class GodelEnvironment:
         reason = "plateau" if plateau else ("max_steps" if truncated else "running")
 
         # Build observation with strategy context
-        rubrics = child_per_task
+        rubrics = active_per_task
         feedback = {
-            task: f"Score: {score:.3f}" for task, score in child_per_task.items()
+            task: f"Score: {score:.3f}" for task, score in active_per_task.items()
         }
 
         self._ingest_agent_challenge(action)
@@ -376,6 +403,7 @@ class GodelEnvironment:
             patch_decision=patch_decision,
             info={
                 "delta": delta,
+                "proposed_delta": proposed_delta,
                 "step": self.step_count,
                 "action_type": action.edit_type,
                 "strategy_note": action.strategy_note,
@@ -397,6 +425,7 @@ class GodelEnvironment:
                 "strategy_eval_mode": self.strategy_evaluator.mode,
                 "strategy_eval_source_counts": child_diagnostics.get("source_counts", {}),
                 "strategy_eval_last_error": child_diagnostics.get("last_error"),
+                "strategy_eval_token_usage": child_diagnostics.get("token_usage", {}),
                 "self_play": {
                     "parent_utility": parent_utility,
                     "child_utility": child_utility,
@@ -418,6 +447,8 @@ class GodelEnvironment:
                 self.current_instance, self.current_solution
             )
         except Exception as exc:
+            if os.getenv("GODEL_GRADING_MODE", "auto").strip().lower() == "llm":
+                raise
             logger.exception("Grading failed for %s", self.current_task.name)
             self.current_task.last_grading_source = "deterministic"
             self.current_task.last_grading_error = f"step grading exception: {type(exc).__name__}"
