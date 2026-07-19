@@ -1,295 +1,135 @@
 ---
 title: GodelEnv
-emoji: 🔁
+emoji: "🔁"
 colorFrom: blue
-colorTo: indigo
+colorTo: green
 sdk: docker
 pinned: false
 tags:
   - openenv
 ---
+
 # GodelEnv: A Self-Improving RL Environment
 
-GodelEnv is an OpenEnv environment for the real workflow AI teams use when they iterate on prompts, reasoning policies, and evaluation recipes before shipping a better assistant. Instead of merely rewarding a single final answer, it simulates proposing a policy change, testing it on held-out downstream tasks, and only adopting it when the evidence shows a real multi-objective improvement. In that sense, the environment is about **verifiable strategy iteration**, not just one-off task completion.
+GodelEnv is a RL Environment for environment-agent coevolution. Diverging from traditional static benchmarks, GodelEnv operationalizes a dual-action reinforcement learning (RL) framework where the learning agent simultaneously mutates its reasoning policy and the curriculum it is evaluated on. 
 
-> "GodelEnv is an OpenEnv environment for training agents to propose, test, and selectively adopt self-modifications to their own reasoning and coding strategies under verifier-backed meta-evaluation."
+The environment institutes two coupled, empirically governed improvement loops:
 
-## The Core Idea
+1. **Policy Mutation (`StrategyPatch`)**: The model proposes modifications to its own reasoning traces. Parent and child strategies are iteratively replayed against a held-out evaluation substrate, and the mutation is only accepted if it demonstrates a statistically significant multi-objective utility improvement without catastrophic regression.
+2. **Curriculum Evolution (`EnvironmentPatch`)**: The model constructs novel challenges by combining and mutating immutable, verified base tasks. The mutation is admitted to the active challenge pool only if it exhibits measurable regret (i.e., solvable by the environment's baseline solver but challenging for the current agent frontier).
 
-GodelEnv implements a practical approximation of [Gödel-machine-style](https://people.idsia.ch/~juergen/gmweb4/gmweb4.html) self-improvement:
-- **Self-modification is explicit**: The agent proposes `StrategyPatch` mutations to its reasoning policy
-- **Improvement proposals are testable**: Patches are evaluated on held-out task bundles
-- **Acceptance depends on objective evidence**: The Governor accepts/rejects based on multi-objective utility, not vibes
+Both loops are intrinsically falsifiable. Generated completions cannot manipulate graders, evaluation references, terminal reward allocation functions, or Governor threshold bounds. 
 
-This follows the pattern validated by [AlphaEvolve](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/): LLM proposals + automated verifiers + evolutionary selection.
+## Documentation and Infrastructure
 
-## The Recursive Ladder
+- **Live Inference / Hugging Face Space**: [https://huggingface.co/spaces/litterarum/GodelEnv](https://huggingface.co/spaces/litterarum/GodelEnv)
+- **Source Repository**: [https://github.com/dwan-ith/GodelEnv](https://github.com/dwan-ith/GodelEnv)
+- **Trainable Colab Implementation**: [train_colab.ipynb](train_colab.ipynb)
+- **Methodology Write-up**: [blog.md](blog.md)
+- **Promoted Policy Routing Manifest**: [artifacts/training_run/routing.json](artifacts/training_run/routing.json)
 
-GodelEnv supports multiple levels of self-improvement:
-- **Level 1**: Improve a solution (legacy mode)
-- **Level 2**: Improve the strategy that produces solutions (primary mode)
-- **Level 3**: Improve the search procedure that improves the strategy (via training)
-- **Level 4**: Improve resource allocation under cost, latency, and safety constraints
+**Training Evidence Logs:**
+- **Training Metrics**: [artifacts/training_run/metrics.json](artifacts/training_run/metrics.json)
+- **Loss Progression**: [artifacts/training_run/loss_curve.png](artifacts/training_run/loss_curve.png)
+- **GRPO Reward Trajectory**: [artifacts/training_run/reward_curve.png](artifacts/training_run/reward_curve.png)
+- **Held-Out Distribution Shift (Before/After)**: [artifacts/training_run/before_after.png](artifacts/training_run/before_after.png)
+- **Deterministic Coevolution Mechanism Validation**: [artifacts/coevolution_smoke_v2/metrics.json](artifacts/coevolution_smoke_v2/metrics.json)
+- **Coevolution Acceptance Curve**: [artifacts/coevolution_smoke_v2/coevolution_curve.png](artifacts/coevolution_smoke_v2/coevolution_curve.png)
 
-## Architecture
+## Theoretical Architecture
 
-The environment is centered on strategy improvement, with task families serving as **evaluation substrate**:
+The architecture mathematically couples principles from [POET](https://arxiv.org/abs/1901.01753) (Paired Open-Ended Trailblazer), which coordinates generative environments with agent optimization, and [PAIRED](https://arxiv.org/abs/2012.02096), which bounds adversarial environments via calculable regret. 
 
+```text
+  Observation: Current Strategy + Downstream Scores + Failure Vectors 
+                               |
+                               v
+                     LLM Generates Action
+                 /                            \
+                v                              v
+       StrategyPatch                    EnvironmentPatch
+  (Revised reasoning policy)     (Bounded curriculum mutation)
+                |                              |
+                v                              v
+       STRATEGY GOVERNOR              ENVIRONMENT GOVERNOR
+  Examines utility delta          Maintains challenge solvability
+  against held-out targets        bounds and computes Regret
+                |                              |
+                v                              v
+  StrategyRegistry (Elo tracking)   ChallengePool (Priority replay)
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                RECURSIVE SELF-IMPROVEMENT                   │
-│                                                             │
-│   Agent observes: current_strategy + failures + scores      │
-│                          ↓                                  │
-│   Agent proposes: StrategyPatch mutation                    │
-│                          ↓                                  │
-│   Evaluator runs: parent vs child on held-out domains       │
-│   (factual_qa, code_improvement, reasoning, alignment_qa,   │
-│    python_optimized, adr_writing)                           │
-│                          ↓                                  │
-│   Governor decides: accept/reject with multi-objective      │
-│   utility (correctness, generalization, robustness,         │
-│   cost, stability, safety)                                  │
-│                          ↓                                  │
-│   Registry updates: lineage, Elo ratings, failure cases     │
-└─────────────────────────────────────────────────────────────┘
-```
 
-### Core Components
+### Action Space Constraints
 
-- **StrategyPatch**: The fundamental action — a proposed mutation to the reasoning policy
-- **Governor**: Multi-gate acceptance filter (improvement, regression, variance, sample size, catastrophic, canary)
-- **StrategyEvaluator**: Runs strategies on held-out task bundles
-- **StrategyRegistry**: Stores accepted strategies with lineage and Elo ratings
-- **HuxleyTracker**: Tracks Clade-Metaproductivity (strategies that produce better descendants)
+#### StrategyPatch Verification
+A valid strategy episode must yield a complete revised strategy, a structured difference description, an explicit hypothesis, and targeted weaknesses. The Strategy Governor executes deterministic evaluations across a rotating subset of tasks: Factual QA, Alignment, Reasoning, Code Improvement, Python Optimization, and ADR Writing. Acceptance strictly mandates cross-domain variance stability, no systematic regressions, and zero evaluator leakage.
 
-### Anti-Hacking Guards
+#### EnvironmentPatch Verification
+The agent specifies bounded curriculum mutations via JSON structures mapping to functional operations (`deepen`, `contrast`, `transfer`) against immutable verified instances. The environment retains total control over the reference mappings. Admissions require a provable delta in current-policy performance and positive alignment to the requested capability frontier.
 
-This is absolutely central. The Governor implements multiple gates to prevent reward hacking:
-1. **Improvement Gate**: Child must have higher multi-objective utility than parent
-2. **Regression Gate**: Child must not regress on too many individual tasks
-3. **Stability Gate**: Child must have acceptable variance across domains
-4. **Sample Size Gate**: Must evaluate on enough tasks for valid decision
-5. **Catastrophic Gate**: No single task can regress too severely
-6. **Canary Gate**: Special canary tasks must not regress
+## Reward Formulations and Anti-Hacking Guardrails
 
-## Architecture
+To train the policy utilizing TRPO/GRPO (Group Relative Policy Optimization), GodelEnv projects six independent reward channels:
 
-GodelEnv behaves as a fully compliant OpenEnv service, making it compatible with existing agentic RL pipelines.
+1. `capability_delta`: Differential improvement in zero-shot task scoring.
+2. `absolute_quality`: Terminal absolute utility of the generated artifact.
+3. `strict_structure`: Enforces JSON syntactical integrity (malformed outputs instantly receive 0.0).
+4. `safety`: Penalizes guardrail violations, impermissible code, leakage, or attempts to manipulate runtime variables.
+5. `recursive_patch`: Reward allocation contingent upon the Strategy Governor accepting a parent-child logic displacement.
+6. `environment_patch`: Reward allocation contingent upon the Environment Governor admitting a valid frontier challenge.
 
-- **OpenEnv Interface**: Conforms strictly to `openenv-core>=0.2.3` standards with standard `/reset`, `/step`, and `/state` API surfaces.
-- **LLM-Required Self-Improvement Runtime**: Strategy proposals and held-out strategy evaluation require a configured LLM provider by default. Deterministic local helpers still exist for unit tests and dataset generation, but they must be explicitly enabled and are not treated as neutral self-improvement evidence.
-- **Multi-Channel Reward**: Discards the single scalar reward in favor of a detailed, multi-axis vector including `task_score_delta`, `format_compliance`, `generalization_score`, `robustness_score`, and `anti_hack_penalty`.
-- **Guardrails**: Includes robust checks for empty responses, repetition, forbidden code patterns, canary leakage, and strategy length limits.
+Actions process through isolated deterministic solvers. Security domains, `ast`-parsed syntax checking, and environment timeouts prevent reward hacking. 
 
-### Supported Providers
+## Hybrid Dual-Action Runtime Strategy
 
-GodelEnv supports multiple LLM providers with provider failover. **LLM mode is the default** for agent actions and strategy evaluation; deterministic fallback is opt-in only for local tests.
-
-**Provider Priority** (configurable via `GODEL_PROVIDER_ORDER`):
-1. `huggingface` - HF Router / Inference API
-2. `ollama` - Local Ollama instance (no API key needed)
-3. `custom` - Any OpenAI-compatible endpoint (vLLM, etc.)
-4. `openai` - OpenAI API
+GodelEnv implements fail-safe deterministic solvers for local RLVR scoring and programmatic validation (`GODEL_GRADING_MODE="deterministic"` or `GODEL_STRATEGY_EVAL_MODE="deterministic"`). The transition to LLM-as-a-judge is seamlessly supported up to the API routing layer; however, deterministic evaluation prevents conflating model evaluation bias with authentic capability growth during training.
 
 ```bash
-# Hugging Face Router (recommended for HF Spaces)
-set HF_TOKEN=...
-set HF_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-# Also accepts: HF_API_KEY, HUGGINGFACE_API_KEY, HUGGINGFACE_TOKEN, etc.
-
-# Local Ollama (no API key required)
-set OLLAMA_MODEL_NAME=qwen2.5:7b
-# Or with custom host:
-set OLLAMA_API_BASE_URL=http://localhost:11434/v1
-
-# Local vLLM or other OpenAI-compatible server
-set API_BASE_URL=http://localhost:8000/v1
-set API_KEY=dummy
-set MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-
-# OpenAI API
-set OPENAI_API_KEY=...
-set OPENAI_MODEL_NAME=gpt-4o-mini
+$env:GODEL_AGENT_MODE="deterministic"
+$env:GODEL_GRADING_MODE="deterministic"
+$env:GODEL_ALLOW_DETERMINISTIC_FALLBACK="1"
+python self_improve.py --iterations 6 --max-patch-attempts 2 \
+  --registry-path artifacts/coevolution_smoke_v2/strategy_registry.json \
+  --challenge-archive-path artifacts/coevolution_smoke_v2/challenge_archive.json \
+  --metrics-path artifacts/coevolution_smoke_v2/metrics.json \
+  --plot-path artifacts/coevolution_smoke_v2/coevolution_curve.png
 ```
 
-**HF Spaces Secrets** — These work automatically without renaming:
+## Empirical Evidence
+
+The training baseline utilized `Qwen/Qwen2.5-0.5B-Instruct` on low-parameter compute (80 SFT steps, 12 repair steps, 6 GRPO steps) across 32 structured prompts, evaluated against a disjoint set of 8 independent held-out examples. 
+
+### Quantitative Baseline Deltas
+
+| Held-out Metric | Untrained Baseline | Routed GRPO Policy | Capability Delta |
+| :--- | :---: | :---: | :---: |
+| **Mean Task Score** | 0.4356 | 0.4510 | +0.0155 |
+| **Mean Environment Reward** | -0.0589 | 0.0962 | +0.1551 |
+| **Schema Integrity Rate** | 50.0% | 87.5% | +37.5 pp |
+| **Strategy Patch Acceptance** | 0.0% | 50.0% | +50.0 pp |
+| **Environment Patch Acceptance**| 0.0% | 50.0% | +50.0 pp |
+
+### Critical Analysis and Statistical Limits
+
+**Validity of Data**: 
+The GRPO routing achieved a **Positive Environment Reward** delta bounded by $95\%$ Confidence Intervals of $[+0.0095, +0.3217]$. This certifies, at a $p < .05$ threshold, that the model statistically optimized for the objective function. Furthermore, the model learned to simultaneously emit viable `StrategyPatch` and `EnvironmentPatch` representations, achieving a unified `verified_coevolution` label that required strict passage through both evaluation Governors.
+
+**Caveats & Areas of Friction**:
+1. **Sample Constraint**: The Task Score delta ($+0.0155$) entails a $95\%$ Confidence Interval that encompasses zero (`CI: [-0.0185, +0.0617]`). Due to computational limits confining the held-out sample batch to $N=8$, the raw capability estimate remains statistically indeterminate without scaling the evaluation batch to larger sample sizes.
+2. **Combinatorial Saturation**: Curriculum evolution operates over a discrete foundation (e.g., source targets `qa01`-`qa08`). Long-term continuous pretraining (over hundreds of thousands of gradient updates) may result in diminishing marginal utility as the permutations of source IDs saturate.
+
+## Run and Reproduce
+
+Install dependencies via `uv` and initialize the stack:
+
 ```bash
-HF_TOKEN=...
-API_BASE_URL=https://router.huggingface.co/v1
-MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
-```
-
-**Important:** `MODEL_NAME` is used for the **Hugging Face** router (inference) only. It must **not** be a model ID for OpenAI. If you also set `OPENAI_API_KEY` as a fallback, set a separate **OpenAI** model id, for example:
-```bash
-OPENAI_MODEL_NAME=gpt-4o-mini
-```
-If you omit `OPENAI_MODEL_NAME`, a Hub-style `MODEL_NAME` (e.g. `Qwen/...`) is **not** sent to the OpenAI API (that caused `400 invalid model ID`). The OpenAI path then defaults to `gpt-4o-mini`.
-
-**Security:** Do not put `OPENAI_API_KEY` in **public** Space variables; use **Secrets** so the key is not visible to visitors.
-
-**Quick Local Setup with Ollama**:
-```bash
-# Install Ollama: https://ollama.ai/
-ollama pull qwen2.5:7b
-set OLLAMA_MODEL_NAME=qwen2.5:7b
-python demo.py  # Uses local model!
-```
-
-**Runtime Flags**:
-```bash
-# LLM-required self-improvement runtime
-set GODEL_GRADING_MODE=auto
-set GODEL_STRATEGY_EVAL_MODE=llm
-set GODEL_AGENT_MODE=llm
-set GODEL_ALLOW_DETERMINISTIC_FALLBACK=0
-
-# Customize provider priority
-set GODEL_PROVIDER_ORDER=ollama,huggingface,openai
-
-# Stronger proposer/verifier separation. With OpenRouter or another
-# OpenAI-compatible router, these can be two different model IDs under the
-# same provider account.
-set GODEL_AGENT_PROVIDER_ORDER=custom
-set GODEL_VERIFIER_PROVIDER_ORDER=custom
-set GODEL_AGENT_MODEL_NAME=qwen/qwen-2.5-7b-instruct
-set GODEL_VERIFIER_MODEL_NAME=qwen/qwen3.6-flash
-set GODEL_REQUIRE_PROVIDER_SEPARATION=1
-
-# Token/case budgets for live eval cost control
-set GODEL_AGENT_MAX_TOKENS=2048
-set GODEL_EVAL_MAX_TOKENS=900
-set GODEL_STRATEGY_EVAL_MAX_CASES=8
-
-# Local deterministic tests only
-set GODEL_STRATEGY_EVAL_MODE=deterministic
-set GODEL_AGENT_MODE=deterministic
-set GODEL_ALLOW_DETERMINISTIC_FALLBACK=1
-```
-
-**Verify your setup**:
-```bash
-python hybrid_smoke.py --require-llm
-```
-
-### Hybrid Mode Diagnostics
-
-**API diagnostics**: The `/demo/act` endpoint returns:
-- `is_llm_generated`: Whether the action came from an LLM
-- `agent_source`: `llm:provider_name:model_id` in normal runtime, or deterministic only when local fallback is explicitly enabled
-- `agent_error`: The error message if LLM failed
-
-**Provider status**: The `/demo/provider-status` endpoint shows:
-- Which API keys are detected in the environment
-- Which providers are configured and their status
-- Circuit breaker state (if a provider was disabled due to errors)
-
-**Require LLM mode**: This is the default for recursive strategy improvement:
-```bash
-set GODEL_AGENT_MODE=llm
-set GODEL_STRATEGY_EVAL_MODE=llm
-set GODEL_ALLOW_DETERMINISTIC_FALLBACK=0
-python demo.py  # Will fail with 503 if no LLM available
-```
-
-### Autonomous Self-Improvement Evaluation
-
-Run a repeated strategy-improvement loop with persistent lineage and metrics:
-```bash
-python self_improve.py --iterations 5 --max-patch-attempts 2 --provider-order custom
-```
-
-Run a research report with multiple seeds, confidence intervals, regression slope, token accounting, and optional static-baseline comparison:
-```bash
-python research_eval.py --seeds 11 22 33 --iterations 3 --max-patch-attempts 2 --include-static-baseline --provider-order custom
-```
-
-For independent proposer/verifier models:
-```bash
-python research_eval.py --seeds 11 22 33 --iterations 3 --provider-order custom --agent-model qwen/qwen-2.5-7b-instruct --verifier-model qwen/qwen3.6-flash
-```
-
-### Deterministic Local Mode
-
-The reference-grounded deterministic policy remains available for unit tests, smoke-free development, and teacher traces. It is not used as evidence for self-improvement unless explicitly requested with `GODEL_ALLOW_DETERMINISTIC_FALLBACK=1` or deterministic modes.
-
-## Verifiable Training Pipeline
-
-GodelEnv ships with a reproducible training pipeline (`train.py`). **Default (`--generation-mode freeform`)** trains the model to generate full JSON actions end-to-end, which is the primary training mode. The environment rewards structured action format compliance and task correctness.
-
-**Neutral held-out evaluation (not heuristic simulation):** use `GODEL_STRATEGY_EVAL_MODE=llm`, `GODEL_AGENT_MODE=llm`, and `GODEL_ALLOW_DETERMINISTIC_FALLBACK=0` with working provider credentials. For Colab/GPU runs, use [train_colab.ipynb](train_colab.ipynb) or [train_colab.py](train_colab.py).
-
-1. **Prompt Collection**: Samples initial states from the live environment.
-2. **Warm-Start**: Teaches the model the `Action` / `StrategyPatch` JSON schema via teacher demonstrations.
-3. **SFT**: Supervised fine-tuning on the demonstration traces.
-4. **GRPO**: Group Relative Policy Optimization trains on generated text end-to-end against the live environment reward signal.
-
-### Training Evidence
-
-The committed training evidence (available in `artifacts/training_run`) demonstrates the environment's learning signal. Figures below match `artifacts/training_run/metrics.json` from a 32-prompt run with 60 SFT steps and 16 GRPO steps (freeform JSON generation):
-
-| Metric | Baseline | Trained | Delta |
-| --- | ---: | ---: | ---: |
-| Mean reward | -0.592 | -0.329 | **+0.263** |
-| Mean score | 0.117 | 0.105 | -0.012 |
-
-**Per-Task Scores:**
-| Task | Baseline | Trained |
-| --- | ---: | ---: |
-| factual_qa | 0.159 | 0.159 |
-| alignment_qa | 0.096 | 0.113 |
-| reasoning | 0.150 | 0.113 |
-| strategy_optimization | 0.063 | 0.034 |
-
-**Note:** The saved run uses `GODEL_BASE_MODEL=gpt2` (~124M parameters). The **reward gain (+0.263)** is statistically meaningful: 84% of post-training episodes beat the baseline mean. Reward improvement is driven primarily by format compliance and process channels; mean task score moved slightly downward (−0.012) with mixed per-task results (alignment_qa up, reasoning and strategy_optimization down, factual_qa flat). Both policies hit 100% JSON action rate; strategy patch rate is 0% for this short run — the recursive patch protocol requires more model capacity and longer training to emerge. The environment is verified and ready to scale.
-
-
-#### Loss Curve (SFT)
-![SFT loss curve](artifacts/training_run/loss_curve.png)
-
-#### Reward Curve (GRPO)
-![GRPO reward curve](artifacts/training_run/reward_curve.png)
-
-#### Comparison
-![Before and after training](artifacts/training_run/before_after.png)
-
-This shows concrete learning on the reward signal for this run. The trained policy remains largely a direct-answer style on the held prompts. The environment path is verified in tests and ready for scaling with larger models and longer training to explore richer recursive behaviors.
-
-## Real-Time Dashboard
-
-The environment includes a high-fidelity dashboard to monitor the recursive loop visually:
-
-- **Engine Status**: Real-time tracking of score progression, step counts, and delta.
-- **Strategy Stats**: Monitors the agent's Strategy ELO, Generation lineage, and remaining computation budget.
-- **Reasoning Strategy**: Displays the specific reasoning policy currently driving the agent's behavior.
-- **Recent Failures**: A live feedback loop showing the "challengers" (failed tasks) that guide the next strategy mutation.
-- **Telemetry**: Verbose streaming of grading sources and Governor acceptance/rejection decisions.
-
-## Quick Start & Validation
-
-### Run the Environment Locally
-```bash
+uv sync --extra dev --extra train
+openenv validate
+pytest -q --basetemp="tmp_pytest"
+python -m compileall godel_engine server train.py train_colab.py
 uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
-### Validate the Engine
-Ensure all core mechanics, grading paths, and OpenEnv specifications are functioning:
-```bash
-openenv validate
-pytest -q
-python -m compileall godel_engine server train.py train_colab.py demo.py
-```
+*Note: The FastAPI WebSockets dashboard handles multi-step telemetry logging natively over `/ws` and exposes provider diagnostics externally at `/demo/provider-status`.*
 
-### Run the Training Pipeline
-Local proof-of-concept (CPU, freeform JSON mode):
-```bash
-python train.py
-```
-**Serious / GPU / Colab** (freeform + API-backed eval): use [train_colab.ipynb](train_colab.ipynb) or [train_colab.py](train_colab.py). The maintainers of this repo cannot run long jobs on your hardware; use Colab, a cloud GPU, or your own machine.
-
-## Project Links
-
-- **Hosted Demo**: [HF Space](https://huggingface.co/spaces/litterarum/GodelEnv)
-- **Source Code**: [GitHub](https://github.com/dwan-ith/GodelEnv)
-- **Blog Post**: [blog.md](https://huggingface.co/spaces/litterarum/GodelEnv/blob/main/blog.md)
-- **Training Notebook**: [train_colab.ipynb](train_colab.ipynb) (runnable on Google Colab)
+See the declarative OpenEnv compliance matrix at [openenv.yaml](openenv.yaml).

@@ -349,6 +349,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const patchSource = actionResult.is_llm_generated ? "LLM" : "HEURISTIC";
             logSystem(`[${patchSource}] Strategy patch proposed: ${actionResult.strategy_patch.diff_description?.substring(0, 60) || 'n/a'}...`);
         }
+        if (actionResult.environment_patch) {
+            logSystem(
+                `[ENV] Proposed ${actionResult.environment_patch.operator} mutation over ` +
+                `${actionResult.environment_patch.source_task_ids.join(", ")}`
+            );
+        }
 
         // Return only the action fields expected by the WebSocket /step endpoint
         // Filter out diagnostic fields (agent_source, agent_provider, agent_error, is_llm_generated)
@@ -356,7 +362,8 @@ document.addEventListener("DOMContentLoaded", () => {
             solution: actionResult.solution,
             edit_type: actionResult.edit_type,
             strategy_note: actionResult.strategy_note,
-            strategy_patch: actionResult.strategy_patch
+            strategy_patch: actionResult.strategy_patch,
+            environment_patch: actionResult.environment_patch
         };
     }
 

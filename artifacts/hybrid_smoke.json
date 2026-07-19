@@ -1,0 +1,18 @@
+{
+  "run_type": "strict_hybrid_smoke",
+  "provider": "ollama",
+  "model": "gemma4:e2b",
+  "inference": "cpu",
+  "deterministic_fallback": false,
+  "heldout_cases": 1,
+  "agent_source": "llm:ollama:gemma4:e2b",
+  "patch_proposed": true,
+  "patch_accepted": true,
+  "strategy_eval_source_counts": {
+    "llm:ollama:gemma4:e2b": 4
+  },
+  "reward": 0.33065528254309373,
+  "score": 0.56749726150429,
+  "circuit_breaker_disabled": false,
+  "claim_boundary": "One live integration smoke episode; not statistical training evidence."
+}

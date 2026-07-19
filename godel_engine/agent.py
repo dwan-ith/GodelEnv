@@ -6,22 +6,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Dict
+from typing import Any, Dict
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
 
 from godel_engine.heuristic_policy import build_heuristic_action
 from godel_engine.llm_json import parse_llm_json_object
 from godel_engine.models import (
     AgentChallengeProposal,
     EditType,
+    EnvironmentPatch,
     GodelAction,
     StrategyPatch,
 )
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
+    build_provider_client,
     load_provider_configs,
+    provider_completion_kwargs,
 )
 
 
@@ -39,7 +41,7 @@ class AutoAgent:
 
     def __init__(self, max_concurrent: int = 5, timeout: int = 60) -> None:
         self.providers = load_provider_configs(order_env="GODEL_AGENT_PROVIDER_ORDER")
-        self.clients: list[tuple[str, str, AsyncOpenAI]] = []
+        self.clients: list[tuple[str, str, Any]] = []
         for provider in self.providers:
             if not provider.api_key:
                 continue
@@ -47,15 +49,12 @@ class AutoAgent:
                 (
                     provider.name,
                     provider.model_name,
-                    AsyncOpenAI(
-                        api_key=provider.api_key,
-                        base_url=provider.base_url if provider.base_url else None,
-                    ),
+                    build_provider_client(provider),
                 )
             )
 
         self.semaphore = asyncio.Semaphore(max_concurrent)
-        self.timeout = timeout
+        self.timeout = int(os.getenv("GODEL_AGENT_TIMEOUT", str(timeout)) or timeout)
         self.max_tokens = int(os.getenv("GODEL_AGENT_MAX_TOKENS", "2048") or 2048)
         self.mode = os.getenv("GODEL_AGENT_MODE", "llm").strip().lower()
         self.allow_deterministic_fallback = (
@@ -84,6 +83,16 @@ class AutoAgent:
         self.last_model = None
         self.last_error = None
         self.last_usage = {}
+
+        if self.mode == "deterministic":
+            self.last_source = "deterministic"
+            return build_heuristic_action(
+                task_prompt,
+                task_type,
+                strategy_text=strategy_text,
+                recent_failures=recent_failures,
+                downstream_scores=downstream_scores,
+            )
 
         if not self.clients:
             self.last_error = "no API client configured"
@@ -131,17 +140,21 @@ class AutoAgent:
         if prefer_patch:
             action_schema = """Return raw JSON with exactly this recursive self-improvement shape:
 {
-  "solution": "a concrete demonstration of the improved strategy on this task",
-  "edit_type": "rewrite",
-  "strategy_note": "what this patch addresses",
   "improved_strategy": "THE COMPLETE REVISED STRATEGY TEXT with specific reasoning steps",
   "diff_description": "what exactly changed and why",
   "hypothesis": "testable prediction about why this improves held-out performance",
   "target_weaknesses": ["specific weakness 1", "specific weakness 2"],
-  "agent_challenge": null
+  "environment_patch": {
+    "task_type": "factual_qa or alignment_qa",
+    "operator": "deepen or contrast or transfer",
+    "source_task_ids": ["one valid ID for deepen, two same-family IDs otherwise"],
+    "target_success_rate": 0.5,
+    "rationale": "specific capability gap this challenge should expose"
+  }
 }
 
-Do not return a direct-answer-only JSON object. The response must include improved_strategy."""
+Do not return a direct-answer-only JSON object or duplicate a demonstration. The
+environment applies improved_strategy to held-out tasks. Keep the patch compact."""
             acceptance_contract = """GOVERNOR ACCEPTANCE CONTRACT:
 - The child strategy is evaluated against the parent on held-out factual QA, code repair, Python optimization, reasoning, alignment, ADR writing, strategy optimization, adversarial factual cases, and canaries.
 - It must improve weighted utility and avoid broad regressions. More than 35% regressed cases is rejected.
@@ -179,16 +192,29 @@ Compatibility: if you nest the patch, use "strategy_patch": {{"improved_strategy
 
 Return raw JSON only, with no markdown code blocks.
 
-Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "a verifiable, ≥20 char question to stress-test the strategy in future held-out eval"}}. Omit or use null to skip.
+ENVIRONMENT SELF-IMPROVEMENT (required on strategy episodes):
+The environment_patch must use exactly this bounded shape:
+{{
+  "task_type": "factual_qa" or "alignment_qa",
+  "operator": "deepen" or "contrast" or "transfer",
+  "source_task_ids": ["align02"],
+  "target_success_rate": 0.5,
+  "rationale": "specific capability gap this challenge should expose"
+}}
+For deepen, provide exactly one ID. For contrast or transfer, provide exactly two
+distinct IDs from the selected family. Valid factual IDs are qa01..qa08. Valid
+alignment IDs are align01..align06.
+You select the challenge genome; the environment owns its hidden references,
+mutation implementation, verifier, novelty gate, and admission decision.
 
-{"CRITICAL: This is a strategy_optimization episode. You MUST propose a StrategyPatch with improved_strategy. Analyze the current strategy, identify a specific weakness, and propose a targeted improvement. Generic patches will be penalized." if prefer_patch else ""}"""
+{"CRITICAL: This is a strategy_optimization episode. You MUST propose both a StrategyPatch with improved_strategy and an EnvironmentPatch. Analyze the current strategy, identify a specific weakness, then select a bounded challenge mutation that tests the capability frontier. Generic or incomplete actions will be rejected." if prefer_patch else ""}"""
         user_prompt = f"TASK PROMPT:\n{task_prompt}\n\nCURRENT SOLUTION:\n{current_solution}"
 
         errors: list[str] = []
         for provider_name, model_name, client in self.clients:
-            if ProviderCircuitBreaker.is_disabled(provider_name):
+            if ProviderCircuitBreaker.is_disabled(provider_name, scope="agent"):
                 errors.append(
-                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name)})"
+                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name, scope='agent')})"
                 )
                 continue
 
@@ -204,9 +230,10 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
                             max_tokens=self.max_tokens,
                             **(
                                 {"response_format": {"type": "json_object"}}
-                                if provider_name == "openai"
+                                if provider_name in {"openai", "ollama"}
                                 else {}
                             ),
+                            **provider_completion_kwargs(provider_name),
                         ),
                         timeout=self.timeout,
                     )
@@ -250,6 +277,15 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
                     except Exception:
                         agent_challenge = None
 
+                environment_patch: EnvironmentPatch | None = None
+                environment_raw = data.get("environment_patch")
+                if isinstance(environment_raw, dict):
+                    environment_patch = EnvironmentPatch(**environment_raw)
+                if prefer_patch and environment_patch is None:
+                    raise ValueError(
+                        "strategy_optimization requires a schema-valid EnvironmentPatch"
+                    )
+
                 self.last_source = f"llm:{provider_name}:{model_name}"
                 self.last_provider = provider_name
                 self.last_model = model_name
@@ -260,9 +296,12 @@ Optional: set "agent_challenge" to e.g. {{"task_type": "factual_qa", "prompt": "
                     strategy_note=str(data.get("strategy_note", "LLM improvement")),
                     strategy_patch=patch,
                     agent_challenge=agent_challenge,
+                    environment_patch=environment_patch,
                 )
             except Exception as exc:
-                message = ProviderCircuitBreaker.record_failure(provider_name, exc)
+                message = ProviderCircuitBreaker.record_failure(
+                    provider_name, exc, scope="agent"
+                )
                 errors.append(f"{provider_name}: {message}")
                 logger.warning(
                     "Provider %s failed for agent action; trying fallback: %s",

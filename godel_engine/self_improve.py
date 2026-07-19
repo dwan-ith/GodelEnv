@@ -13,6 +13,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from godel_engine.agent import AutoAgent
+from godel_engine.challenge_pool import ChallengePool
 from godel_engine.environment import GodelEnvironment
 from godel_engine.evolution import StrategyRegistry
 from godel_engine.models import GodelAction
@@ -45,6 +46,10 @@ class SelfImproveEvent:
     reward: float
     score: float
     improvement: float
+    environment_patch_proposed: bool = False
+    environment_patch_accepted: bool = False
+    environment_learning_value: float = 0.0
+    environment_rejection_reasons: list[str] = field(default_factory=list)
     rejection_reasons: list[str] = field(default_factory=list)
     source_counts: dict[str, int] = field(default_factory=dict)
     token_usage: dict[str, int] = field(default_factory=dict)
@@ -63,6 +68,10 @@ class SelfImproveEvent:
             "reward": self.reward,
             "score": self.score,
             "improvement": self.improvement,
+            "environment_patch_proposed": self.environment_patch_proposed,
+            "environment_patch_accepted": self.environment_patch_accepted,
+            "environment_learning_value": self.environment_learning_value,
+            "environment_rejection_reasons": list(self.environment_rejection_reasons),
             "rejection_reasons": list(self.rejection_reasons),
             "source_counts": dict(self.source_counts),
             "token_usage": dict(self.token_usage),
@@ -78,6 +87,7 @@ class SelfImprovementRunner:
         self,
         *,
         registry_path: str | Path | None = None,
+        challenge_archive_path: str | Path | None = None,
         metrics_path: str | Path | None = None,
         agent: Any | None = None,
         strategy_evaluator: Any | None = None,
@@ -85,6 +95,9 @@ class SelfImprovementRunner:
     ) -> None:
         self.seed = seed
         self.registry_path = Path(registry_path) if registry_path else None
+        self.challenge_archive_path = (
+            Path(challenge_archive_path) if challenge_archive_path else None
+        )
         self.metrics_path = Path(metrics_path) if metrics_path else None
         self.agent = agent or AutoAgent()
         self.strategy_evaluator = strategy_evaluator
@@ -94,6 +107,11 @@ class SelfImprovementRunner:
             else StrategyRegistry()
         )
         self.registry = rng_registry
+        self.challenge_pool = (
+            ChallengePool.load(self.challenge_archive_path)
+            if self.challenge_archive_path and self.challenge_archive_path.exists()
+            else ChallengePool()
+        )
 
     async def run(
         self,
@@ -107,7 +125,11 @@ class SelfImprovementRunner:
 
         for index in range(iterations):
             task_id = task_ids[index % len(task_ids)]
-            env = GodelEnvironment(seed=self.seed + index, registry=self.registry)
+            env = GodelEnvironment(
+                seed=self.seed + index,
+                registry=self.registry,
+                challenge_pool=self.challenge_pool,
+            )
             if self.strategy_evaluator is not None:
                 env.strategy_evaluator = self.strategy_evaluator
             obs = None
@@ -119,6 +141,7 @@ class SelfImprovementRunner:
                     task_type="strategy_optimization",
                     task_id=task_id,
                     seed=self.seed + index,
+                    episode_id=f"coevolution:{self.seed}:{index}:{task_id}",
                 )
                 obs = reset_result.observation
                 task = env.current_task
@@ -141,6 +164,7 @@ class SelfImprovementRunner:
 
                     step_result = await env.step(action)
                     decision = step_result.patch_decision
+                    environment_decision = step_result.environment_patch_decision
                     source_counts = (
                         decision.diagnostics.get("child_source_counts", {})
                         if decision
@@ -186,6 +210,20 @@ class SelfImprovementRunner:
                             reward=float(step_result.reward),
                             score=float(step_result.observation.total_score),
                             improvement=float(decision.improvement if decision else 0.0),
+                            environment_patch_proposed=action.environment_patch is not None,
+                            environment_patch_accepted=bool(
+                                environment_decision and environment_decision.accepted
+                            ),
+                            environment_learning_value=float(
+                                environment_decision.learning_value
+                                if environment_decision
+                                else 0.0
+                            ),
+                            environment_rejection_reasons=list(
+                                environment_decision.rejection_reasons
+                                if environment_decision
+                                else []
+                            ),
                             rejection_reasons=rejection_reasons,
                             source_counts={str(k): int(v) for k, v in source_counts.items()},
                             token_usage={str(k): int(v) for k, v in token_usage.items()},
@@ -221,6 +259,8 @@ class SelfImprovementRunner:
 
             if self.registry_path:
                 self.registry.save(self.registry_path)
+            if self.challenge_archive_path:
+                self.challenge_pool.save(self.challenge_archive_path)
 
         summary = self._summarize(events)
         if self.metrics_path:
@@ -232,6 +272,8 @@ class SelfImprovementRunner:
         attempts = len(events)
         accepted = sum(1 for event in events if event.patch_accepted)
         proposed = sum(1 for event in events if event.patch_proposed)
+        environment_proposed = sum(1 for event in events if event.environment_patch_proposed)
+        environment_accepted = sum(1 for event in events if event.environment_patch_accepted)
         errors = [event.to_dict() for event in events if event.error]
         llm_eval_events = sum(
             1
@@ -273,9 +315,85 @@ class SelfImprovementRunner:
             "best_strategy_generation": best.generation,
             "best_strategy_elo": best.elo,
             "registry": self.registry.get_stats(),
+            "environment_patches_proposed": environment_proposed,
+            "environment_patches_accepted": environment_accepted,
+            "environment_patches_rejected": environment_proposed - environment_accepted,
+            "environment_acceptance_rate": (
+                environment_accepted / environment_proposed if environment_proposed else 0.0
+            ),
+            "environment_archive": self.challenge_pool.as_stats(),
+            "model_self_improved": accepted > 0,
+            "environment_self_improved": environment_accepted > 0,
+            "verified_coevolution": accepted > 0 and environment_accepted > 0,
             "events": [event.to_dict() for event in events],
             "errors": errors,
         }
+
+
+def plot_coevolution_metrics(summary: dict[str, Any], output_path: str | Path) -> Path:
+    """Plot cumulative model/environment admissions and per-attempt signals."""
+    import matplotlib.pyplot as plt
+
+    events = list(summary.get("events", []))
+    if not events:
+        raise ValueError("Cannot plot an empty coevolution run")
+
+    attempts = list(range(1, len(events) + 1))
+    model_total = 0
+    environment_total = 0
+    model_admissions: list[int] = []
+    environment_admissions: list[int] = []
+    rewards: list[float] = []
+    learning_values: list[float] = []
+    for event in events:
+        model_total += int(bool(event.get("patch_accepted")))
+        environment_total += int(bool(event.get("environment_patch_accepted")))
+        model_admissions.append(model_total)
+        environment_admissions.append(environment_total)
+        rewards.append(float(event.get("reward", 0.0)))
+        learning_values.append(float(event.get("environment_learning_value", 0.0)))
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    fig.patch.set_facecolor("#f4f0e6")
+    for axis in axes:
+        axis.set_facecolor("#fffdf8")
+        axis.grid(axis="y", alpha=0.22)
+
+    axes[0].step(attempts, model_admissions, where="post", color="#b23a2b", linewidth=2.4, label="Model patches")
+    axes[0].step(
+        attempts,
+        environment_admissions,
+        where="post",
+        color="#176b5b",
+        linewidth=2.4,
+        label="Environment patches",
+    )
+    axes[0].set_title("Accepted Coevolution Mutations")
+    axes[0].set_xlabel("Governor attempt")
+    axes[0].set_ylabel("Cumulative accepted mutations")
+    axes[0].legend(frameon=False)
+
+    axes[1].plot(attempts, rewards, color="#b23a2b", marker="o", label="Episode reward")
+    axes[1].plot(
+        attempts,
+        learning_values,
+        color="#176b5b",
+        marker="s",
+        label="Environment learning value",
+    )
+    axes[1].axhline(0.0, color="#272421", linewidth=0.8, alpha=0.55)
+    axes[1].set_title("Admission Signals by Attempt")
+    axes[1].set_xlabel("Governor attempt")
+    axes[1].set_ylabel("Score")
+    axes[1].legend(frameon=False)
+
+    fig.suptitle("GodelEnv deterministic mechanism proof", fontweight="bold")
+    fig.tight_layout()
+    fig.savefig(output, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return output
 
 
 def parse_args() -> argparse.Namespace:
@@ -292,6 +410,17 @@ def parse_args() -> argparse.Namespace:
         "--metrics-path",
         type=Path,
         default=Path("artifacts") / "self_improve" / "metrics.json",
+    )
+    parser.add_argument(
+        "--challenge-archive-path",
+        type=Path,
+        default=Path("artifacts") / "self_improve" / "challenge_archive.json",
+    )
+    parser.add_argument(
+        "--plot-path",
+        type=Path,
+        default=None,
+        help="Optional path for a cumulative model/environment coevolution plot.",
     )
     parser.add_argument(
         "--provider-order",
@@ -341,6 +470,7 @@ async def async_main() -> int:
 
     runner = SelfImprovementRunner(
         registry_path=args.registry_path,
+        challenge_archive_path=args.challenge_archive_path,
         metrics_path=args.metrics_path,
         seed=args.seed,
     )
@@ -348,6 +478,8 @@ async def async_main() -> int:
         iterations=args.iterations,
         max_patch_attempts=args.max_patch_attempts,
     )
+    if args.plot_path:
+        plot_coevolution_metrics(summary, args.plot_path)
     print(json.dumps(summary, indent=2))
     return 0 if summary["patches_proposed"] > 0 else 1
 

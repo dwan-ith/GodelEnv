@@ -9,7 +9,7 @@ import os
 from dotenv import load_dotenv
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from openenv.core.env_server.http_server import create_app
+from openenv.core.env_server import create_app
 
 from godel_engine.openenv_environment import GodelOpenEnvEnvironment
 from godel_engine.openenv_models import GodelOpenEnvAction, GodelOpenEnvObservation
@@ -26,9 +26,9 @@ logging.basicConfig(
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 app = create_app(
-    env=GodelOpenEnvEnvironment,
-    action_cls=GodelOpenEnvAction,
-    observation_cls=GodelOpenEnvObservation,
+    GodelOpenEnvEnvironment,
+    GodelOpenEnvAction,
+    GodelOpenEnvObservation,
     env_name="GodelEnv",
 )
 app.include_router(demo_router)

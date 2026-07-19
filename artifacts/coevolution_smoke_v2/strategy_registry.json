@@ -1,0 +1,967 @@
+{
+  "schema_version": 1,
+  "max_size": 50,
+  "strategies": [
+    {
+      "id": "strat_root",
+      "policy_text": "REASONING STRATEGY v0.1 (minimal baseline)\n\n1. Read and understand the task prompt.\n2. Draft an initial answer.\n3. Review and finalize the response.\n",
+      "parent_id": null,
+      "generation": 0,
+      "fitness": 0.8061346891534392,
+      "elo": 984.0,
+      "cmp_score": 0.8049776841684742,
+      "history": [
+        0.455,
+        0.668,
+        0.8248666666666666,
+        1.0,
+        0.7436011904761904,
+        0.9033749999999999,
+        0.7436011904761904,
+        0.9138055555555556,
+        0.668,
+        1.0,
+        0.8367,
+        0.9166666666666666
+      ],
+      "per_task_scores": {
+        "python_optimized": [
+          0.455
+        ],
+        "strategy_optimization": [
+          0.668,
+          0.668
+        ],
+        "alignment_qa": [
+          0.8248666666666666,
+          0.8367
+        ],
+        "code_improvement": [
+          1.0,
+          1.0
+        ],
+        "adr_writing": [
+          0.7436011904761904,
+          0.7436011904761904
+        ],
+        "factual_qa": [
+          0.9033749999999999,
+          0.9138055555555556
+        ],
+        "reasoning": [
+          0.9166666666666666
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "deterministic",
+          "verifier": "deterministic",
+          "deterministic_fallback_allowed": true,
+          "providers": [
+            {
+              "name": "openai",
+              "configured": true,
+              "base_url": null,
+              "model_name": "gpt-4o-mini",
+              "disabled": false,
+              "disabled_reason": null
+            },
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "heldout:adr_writing:adr02",
+              "task_type": "adr_writing",
+              "task_id": "adr02",
+              "score": 0.7436011904761904,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:factual_qa:qa07",
+              "task_type": "factual_qa",
+              "task_id": "qa07",
+              "score": 0.9346666666666668,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:strategy_optimization:godel03",
+              "task_type": "strategy_optimization",
+              "task_id": "godel03",
+              "score": 0.668,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:code_improvement:code01",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 1.0,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:alignment_qa:align06",
+              "task_type": "alignment_qa",
+              "task_id": "align06",
+              "score": 0.9884000000000001,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:adr_writing:adr01",
+              "task_type": "adr_writing",
+              "task_id": "adr01",
+              "score": 0.7436011904761904,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason03",
+              "task_type": "reasoning",
+              "task_id": "reason03",
+              "score": 0.9166666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "agent_gen:alignment_qa:env_05da95147786ed2c",
+              "task_type": "alignment_qa",
+              "task_id": "env_05da95147786ed2c",
+              "score": 0.685,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "canary:strategy_optimization:godel01",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.668,
+              "source": "deterministic",
+              "is_canary": true
+            },
+            {
+              "key": "adversarial:factual_qa:adv_factual_1",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_1",
+              "score": 0.9121249999999999,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "adversarial:factual_qa:adv_factual_2",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_2",
+              "score": 0.894625,
+              "source": "deterministic",
+              "is_canary": false
+            }
+          ],
+          "agent_challenges_mixed": 3,
+          "deterministic_solver_uses": 11,
+          "token_usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+          },
+          "provider_roles": {
+            "agent_order_env": "",
+            "verifier_order_env": ""
+          },
+          "per_family": {
+            "adr_writing": 0.7436011904761904,
+            "factual_qa": 0.9138055555555556,
+            "strategy_optimization": 0.668,
+            "code_improvement": 1.0,
+            "alignment_qa": 0.8367,
+            "reasoning": 0.9166666666666666
+          },
+          "axis_scores": {
+            "correctness": 0.8464622354497354,
+            "generalization": 0.668,
+            "robustness": 0.8215377645502646,
+            "cost": 0.9,
+            "stability": 0.8877784220361322
+          },
+          "source_counts": {
+            "deterministic": 11
+          }
+        }
+      },
+      "patch_description": null,
+      "patch_hypothesis": null
+    },
+    {
+      "id": "strat_c06f9c",
+      "policy_text": "REASONING STRATEGY\n1. REASONING STRATEGY v0.1 (minimal baseline)\n2. Read and understand the task prompt\n3. Draft an initial answer\n4. Review and finalize the response\n5. Run a self-check: verify that the final answer addresses the actual prompt, covers both sides of required contrasts, and is internally consistent.\n6. For code or systems tasks, analyze complexity and prefer solutions with a clear efficiency argument.",
+      "parent_id": "strat_root",
+      "generation": 1,
+      "fitness": 0.8022378684472111,
+      "elo": 999.263693206478,
+      "cmp_score": 0.8077174998897373,
+      "history": [
+        0.455,
+        0.668,
+        0.8248666666666666,
+        1.0,
+        0.7436011904761904,
+        0.9033749999999999,
+        0.7436011904761904,
+        0.9138055555555556,
+        0.668,
+        1.0,
+        0.8367,
+        0.9166666666666666,
+        0.7436011904761904,
+        0.9161666666666667,
+        0.72,
+        1.0,
+        0.8347564102564102,
+        0.9166666666666666,
+        0.7783230769230769,
+        0.455,
+        0.9166666666666666,
+        0.72,
+        1.0,
+        0.7436011904761904,
+        0.9037499999999999,
+        0.9166666666666666,
+        0.455,
+        0.7436011904761904,
+        0.8034594202898551,
+        0.9174666666666665,
+        0.72,
+        0.9017222222222222,
+        0.7200000000000001,
+        0.7858099838969403,
+        0.455,
+        0.9166666666666666,
+        1.0,
+        0.9017222222222222,
+        0.9166666666666666,
+        0.7544594405594405,
+        0.7436011904761904,
+        0.72
+      ],
+      "per_task_scores": {
+        "adr_writing": [
+          0.7436011904761904,
+          0.7436011904761904,
+          0.7436011904761904,
+          0.7436011904761904
+        ],
+        "factual_qa": [
+          0.9161666666666667,
+          0.9037499999999999,
+          0.9174666666666665,
+          0.9017222222222222,
+          0.9017222222222222
+        ],
+        "strategy_optimization": [
+          0.72,
+          0.72,
+          0.72,
+          0.7200000000000001,
+          0.72
+        ],
+        "code_improvement": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "alignment_qa": [
+          0.8347564102564102,
+          0.7783230769230769,
+          0.8034594202898551,
+          0.7858099838969403,
+          0.7544594405594405
+        ],
+        "reasoning": [
+          0.9166666666666666,
+          0.9166666666666666,
+          0.9166666666666666,
+          0.9166666666666666,
+          0.9166666666666666
+        ],
+        "python_optimized": [
+          0.455,
+          0.455,
+          0.455
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "deterministic",
+          "verifier": "deterministic",
+          "deterministic_fallback_allowed": true,
+          "providers": [
+            {
+              "name": "openai",
+              "configured": true,
+              "base_url": null,
+              "model_name": "gpt-4o-mini",
+              "disabled": false,
+              "disabled_reason": null
+            },
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "heldout:code_improvement:code01",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 1.0,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:factual_qa:qa02",
+              "task_type": "factual_qa",
+              "task_id": "qa02",
+              "score": 0.8976666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason04",
+              "task_type": "reasoning",
+              "task_id": "reason04",
+              "score": 0.9166666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:alignment_qa:align02",
+              "task_type": "alignment_qa",
+              "task_id": "align02",
+              "score": 0.8831333333333332,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:code_improvement:code02",
+              "task_type": "code_improvement",
+              "task_id": "code02",
+              "score": 1.0,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:adr_writing:adr02",
+              "task_type": "adr_writing",
+              "task_id": "adr02",
+              "score": 0.7436011904761904,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason01",
+              "task_type": "reasoning",
+              "task_id": "reason01",
+              "score": 0.9166666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "agent_gen:alignment_qa:env_dcb17564a3a6b83e",
+              "task_type": "alignment_qa",
+              "task_id": "env_dcb17564a3a6b83e",
+              "score": 0.6257855477855478,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "canary:strategy_optimization:godel01",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.72,
+              "source": "deterministic",
+              "is_canary": true
+            },
+            {
+              "key": "adversarial:factual_qa:adv_factual_1",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_1",
+              "score": 0.9124999999999999,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "adversarial:factual_qa:adv_factual_2",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_2",
+              "score": 0.895,
+              "source": "deterministic",
+              "is_canary": false
+            }
+          ],
+          "agent_challenges_mixed": 3,
+          "deterministic_solver_uses": 11,
+          "token_usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+          },
+          "provider_roles": {
+            "agent_order_env": "",
+            "verifier_order_env": ""
+          },
+          "per_family": {
+            "code_improvement": 1.0,
+            "factual_qa": 0.9017222222222222,
+            "reasoning": 0.9166666666666666,
+            "alignment_qa": 0.7544594405594405,
+            "adr_writing": 0.7436011904761904,
+            "strategy_optimization": 0.72
+          },
+          "axis_scores": {
+            "correctness": 0.8394082533207533,
+            "generalization": 0.72,
+            "robustness": 0.8805917466792467,
+            "cost": 0.9,
+            "stability": 0.8948848034328969
+          },
+          "source_counts": {
+            "deterministic": 11
+          }
+        }
+      },
+      "patch_description": "Added or strengthened: Run a self-check: verify that the final answer addresses the actual prompt, covers both sides of required contrasts, and is internally consistent., For code or systems tasks, analyze complexity and prefer solutions with a clear efficiency argument.",
+      "patch_hypothesis": "Strengthening verify, efficiency should improve python_optimized, strategy_optimization by making the solver cover more task-specific evidence and catch omissions before finalizing."
+    },
+    {
+      "id": "strat_318927",
+      "policy_text": "REASONING STRATEGY\n1. REASONING STRATEGY\n2. REASONING STRATEGY v0.1 (minimal baseline)\n3. Read and understand the task prompt\n4. Draft an initial answer\n5. Review and finalize the response\n6. Run a self-check: verify that the final answer addresses the actual prompt, covers both sides of required contrasts, and is internally consistent\n7. For code or systems tasks, analyze complexity and prefer solutions with a clear efficiency argument\n8. Decompose the task into claims, assumptions, and decision points before drafting the answer.",
+      "parent_id": "strat_c06f9c",
+      "generation": 2,
+      "fitness": 0.8077174998897373,
+      "elo": 1016.736306793522,
+      "cmp_score": 0.0,
+      "history": [
+        0.455,
+        0.668,
+        0.8248666666666666,
+        1.0,
+        0.7436011904761904,
+        0.9033749999999999,
+        0.7436011904761904,
+        0.9138055555555556,
+        0.668,
+        1.0,
+        0.8367,
+        0.9166666666666666,
+        0.7436011904761904,
+        0.9161666666666667,
+        0.72,
+        1.0,
+        0.8347564102564102,
+        0.9166666666666666,
+        0.7783230769230769,
+        0.455,
+        0.9166666666666666,
+        0.72,
+        1.0,
+        0.7436011904761904,
+        0.9037499999999999,
+        0.9166666666666666,
+        0.455,
+        0.7436011904761904,
+        0.8034594202898551,
+        0.9174666666666665,
+        0.72,
+        0.9017222222222222,
+        0.7200000000000001,
+        0.7858099838969403,
+        0.455,
+        0.9166666666666666,
+        1.0,
+        0.9017222222222222,
+        0.9166666666666666,
+        0.7544594405594405,
+        0.7436011904761904,
+        0.72,
+        1.0,
+        0.9017222222222222,
+        0.9166666666666666,
+        0.7544594405594405,
+        0.7436011904761904,
+        0.76
+      ],
+      "per_task_scores": {
+        "code_improvement": [
+          1.0
+        ],
+        "factual_qa": [
+          0.9017222222222222
+        ],
+        "reasoning": [
+          0.9166666666666666
+        ],
+        "alignment_qa": [
+          0.7544594405594405
+        ],
+        "adr_writing": [
+          0.7436011904761904
+        ],
+        "strategy_optimization": [
+          0.76
+        ]
+      },
+      "failure_cases": [],
+      "metadata": {
+        "last_eval": {
+          "mode": "deterministic",
+          "verifier": "deterministic",
+          "deterministic_fallback_allowed": true,
+          "providers": [
+            {
+              "name": "openai",
+              "configured": true,
+              "base_url": null,
+              "model_name": "gpt-4o-mini",
+              "disabled": false,
+              "disabled_reason": null
+            },
+            {
+              "name": "custom",
+              "configured": true,
+              "base_url": "https://openrouter.ai/api/v1",
+              "model_name": "qwen/qwen-2.5-7b-instruct",
+              "disabled": false,
+              "disabled_reason": null
+            }
+          ],
+          "cases": [
+            {
+              "key": "heldout:code_improvement:code01",
+              "task_type": "code_improvement",
+              "task_id": "code01",
+              "score": 1.0,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:factual_qa:qa02",
+              "task_type": "factual_qa",
+              "task_id": "qa02",
+              "score": 0.8976666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason04",
+              "task_type": "reasoning",
+              "task_id": "reason04",
+              "score": 0.9166666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:alignment_qa:align02",
+              "task_type": "alignment_qa",
+              "task_id": "align02",
+              "score": 0.8831333333333332,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:code_improvement:code02",
+              "task_type": "code_improvement",
+              "task_id": "code02",
+              "score": 1.0,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:adr_writing:adr02",
+              "task_type": "adr_writing",
+              "task_id": "adr02",
+              "score": 0.7436011904761904,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "heldout:reasoning:reason01",
+              "task_type": "reasoning",
+              "task_id": "reason01",
+              "score": 0.9166666666666666,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "agent_gen:alignment_qa:env_dcb17564a3a6b83e",
+              "task_type": "alignment_qa",
+              "task_id": "env_dcb17564a3a6b83e",
+              "score": 0.6257855477855478,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "canary:strategy_optimization:godel01",
+              "task_type": "strategy_optimization",
+              "task_id": "godel01",
+              "score": 0.76,
+              "source": "deterministic",
+              "is_canary": true
+            },
+            {
+              "key": "adversarial:factual_qa:adv_factual_1",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_1",
+              "score": 0.9124999999999999,
+              "source": "deterministic",
+              "is_canary": false
+            },
+            {
+              "key": "adversarial:factual_qa:adv_factual_2",
+              "task_type": "factual_qa",
+              "task_id": "adv_factual_2",
+              "score": 0.895,
+              "source": "deterministic",
+              "is_canary": false
+            }
+          ],
+          "agent_challenges_mixed": 3,
+          "deterministic_solver_uses": 11,
+          "token_usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+          },
+          "provider_roles": {
+            "agent_order_env": "",
+            "verifier_order_env": ""
+          },
+          "per_family": {
+            "code_improvement": 1.0,
+            "factual_qa": 0.9017222222222222,
+            "reasoning": 0.9166666666666666,
+            "alignment_qa": 0.7544594405594405,
+            "adr_writing": 0.7436011904761904,
+            "strategy_optimization": 0.76
+          },
+          "axis_scores": {
+            "correctness": 0.8460749199874199,
+            "generalization": 0.7436011904761904,
+            "robustness": 0.8975262704887705,
+            "cost": 0.9,
+            "stability": 0.9016164814245483
+          },
+          "source_counts": {
+            "deterministic": 11
+          }
+        }
+      },
+      "patch_description": "Added or strengthened: For code or systems tasks, analyze complexity and prefer solutions with a clear efficiency argument., Decompose the task into claims, assumptions, and decision points before drafting the answer.",
+      "patch_hypothesis": "Strengthening efficiency, decompose should improve python_optimized, strategy_optimization by making the solver cover more task-specific evidence and catch omissions before finalizing."
+    }
+  ],
+  "lineage": {
+    "strat_root": [
+      "strat_c06f9c"
+    ],
+    "strat_c06f9c": [
+      "strat_318927"
+    ]
+  },
+  "rejected_patches": [
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6959437085985531,
+      "child_utility": 0.6987794988543357,
+      "improvement": 0.002835790255782511,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0028 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 11,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7658071428571428,
+          "generalization": 0.455,
+          "robustness": 0.6891928571428572,
+          "cost": 0.9,
+          "stability": 0.8249192288426743
+        },
+        "child": {
+          "correctness": 0.7758029761904762,
+          "generalization": 0.455,
+          "robustness": 0.6791970238095237,
+          "cost": 0.9,
+          "stability": 0.8282875480671658
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.026664559400709317,
+        "mean_child_score": 0.7451971861471861
+      }
+    },
+    {
+      "parent_id": "strat_root",
+      "accepted": false,
+      "parent_utility": 0.6959437085985531,
+      "child_utility": 0.6956505866945142,
+      "improvement": -0.0002931219040389621,
+      "rejection_reasons": [
+        "Insufficient improvement: -0.0003 < 0.005",
+        "Catastrophic regression on heldout:adr_writing:adr01: 0.744 -> 0.000 (drop of 0.744 > 0.2)"
+      ],
+      "regression_count": 1,
+      "tasks_evaluated": 12,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7658071428571428,
+          "generalization": 0.455,
+          "robustness": 0.6891928571428572,
+          "cost": 0.9,
+          "stability": 0.8249192288426743
+        },
+        "child": {
+          "correctness": 0.7625568223443224,
+          "generalization": 0.455,
+          "robustness": 0.6924431776556776,
+          "cost": 0.9,
+          "stability": 0.8301138110843355
+        }
+      },
+      "diagnostics": {
+        "regressions": [
+          "heldout:adr_writing:adr01: 0.744 -> 0.000 (-0.744)"
+        ],
+        "variance": 0.027090879501637355,
+        "mean_child_score": 0.7388255161505161
+      }
+    },
+    {
+      "parent_id": "strat_c06f9c",
+      "accepted": false,
+      "parent_utility": 0.7024658514296345,
+      "child_utility": 0.7040712834158906,
+      "improvement": 0.0016054319862561783,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0016 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 11,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7881915620094191,
+          "generalization": 0.455,
+          "robustness": 0.666808437990581,
+          "cost": 0.9,
+          "stability": 0.8341796092727973
+        },
+        "child": {
+          "correctness": 0.7939058477237049,
+          "generalization": 0.455,
+          "robustness": 0.6610941522762952,
+          "cost": 0.9,
+          "stability": 0.8359482148496439
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.0301614637507216,
+        "mean_child_score": 0.7685830919080918
+      }
+    },
+    {
+      "parent_id": "strat_c06f9c",
+      "accepted": false,
+      "parent_utility": 0.7024658514296345,
+      "child_utility": 0.703762396648929,
+      "improvement": 0.0012965452192945648,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0013 < 0.005",
+        "Catastrophic regression on agent_gen:alignment_qa:env_05da95147786ed2c: 0.674 -> 0.000 (drop of 0.674 > 0.2)"
+      ],
+      "regression_count": 1,
+      "tasks_evaluated": 12,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7881915620094191,
+          "generalization": 0.455,
+          "robustness": 0.666808437990581,
+          "cost": 0.9,
+          "stability": 0.8341796092727973
+        },
+        "child": {
+          "correctness": 0.7927253253475303,
+          "generalization": 0.455,
+          "robustness": 0.6622746746524697,
+          "cost": 0.9,
+          "stability": 0.8358106531204648
+        }
+      },
+      "diagnostics": {
+        "regressions": [
+          "agent_gen:alignment_qa:env_05da95147786ed2c: 0.674 -> 0.000 (-0.674)"
+        ],
+        "variance": 0.030469721240861537,
+        "mean_child_score": 0.7670806088838696
+      }
+    },
+    {
+      "parent_id": "strat_c06f9c",
+      "accepted": false,
+      "parent_utility": 0.6962358371625398,
+      "child_utility": 0.6979997765554999,
+      "improvement": 0.0017639393929601566,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0018 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 11,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7593656573498965,
+          "generalization": 0.455,
+          "robustness": 0.6956343426501035,
+          "cost": 0.9,
+          "stability": 0.8439442282506574
+        },
+        "child": {
+          "correctness": 0.7660323240165631,
+          "generalization": 0.455,
+          "robustness": 0.6889676759834369,
+          "cost": 0.9,
+          "stability": 0.844916955513592
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.02067825748929408,
+        "mean_child_score": 0.794380717108978
+      }
+    },
+    {
+      "parent_id": "strat_c06f9c",
+      "accepted": false,
+      "parent_utility": 0.6962358371625398,
+      "child_utility": 0.6979997765554999,
+      "improvement": 0.0017639393929601566,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0018 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 11,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7593656573498965,
+          "generalization": 0.455,
+          "robustness": 0.6956343426501035,
+          "cost": 0.9,
+          "stability": 0.8439442282506574
+        },
+        "child": {
+          "correctness": 0.7660323240165631,
+          "generalization": 0.455,
+          "robustness": 0.6889676759834369,
+          "cost": 0.9,
+          "stability": 0.844916955513592
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.02067825748929408,
+        "mean_child_score": 0.794380717108978
+      }
+    },
+    {
+      "parent_id": "strat_c06f9c",
+      "accepted": false,
+      "parent_utility": 0.6942366514630403,
+      "child_utility": 0.6963318307793449,
+      "improvement": 0.0020951793163046517,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0021 < 0.005"
+      ],
+      "regression_count": 0,
+      "tasks_evaluated": 11,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7558397745571659,
+          "generalization": 0.455,
+          "robustness": 0.6991602254428342,
+          "cost": 0.9,
+          "stability": 0.8327670782374872
+        },
+        "child": {
+          "correctness": 0.7638397745571659,
+          "generalization": 0.455,
+          "robustness": 0.6911602254428342,
+          "cost": 0.9,
+          "stability": 0.8337188714005342
+        }
+      },
+      "diagnostics": {
+        "regressions": [],
+        "variance": 0.01780115544737246,
+        "mean_child_score": 0.792205753184014
+      }
+    },
+    {
+      "parent_id": "strat_c06f9c",
+      "accepted": false,
+      "parent_utility": 0.6942366514630403,
+      "child_utility": 0.6958341250544438,
+      "improvement": 0.0015974735914034977,
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0016 < 0.005",
+        "Catastrophic regression on agent_gen:alignment_qa:env_8a896ce50e99c57c: 0.657 -> 0.000 (drop of 0.657 > 0.2)"
+      ],
+      "regression_count": 1,
+      "tasks_evaluated": 12,
+      "axis_scores": {
+        "parent": {
+          "correctness": 0.7558397745571659,
+          "generalization": 0.455,
+          "robustness": 0.6991602254428342,
+          "cost": 0.9,
+          "stability": 0.8327670782374872
+        },
+        "child": {
+          "correctness": 0.7617597772597773,
+          "generalization": 0.455,
+          "robustness": 0.6932402227402228,
+          "cost": 0.9,
+          "stability": 0.8339418073949947
+        }
+      },
+      "diagnostics": {
+        "regressions": [
+          "agent_gen:alignment_qa:env_8a896ce50e99c57c: 0.657 -> 0.000 (-0.657)"
+        ],
+        "variance": 0.01864867140536751,
+        "mean_child_score": 0.7893693932330297
+      }
+    }
+  ],
+  "stats": {
+    "total_strategies": 3,
+    "best_strategy_id": "strat_318927",
+    "best_elo": 1016.736306793522,
+    "best_fitness": 0.8077174998897373,
+    "max_generation": 2,
+    "total_rejected": 8
+  }
+}

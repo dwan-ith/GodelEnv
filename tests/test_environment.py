@@ -6,6 +6,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
 os.environ["GODEL_GRADING_MODE"] = "deterministic"
 os.environ["GODEL_STRATEGY_EVAL_MODE"] = "deterministic"
 os.environ["GODEL_AGENT_MODE"] = "deterministic"
@@ -24,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
 
+from godel_engine.agent import AutoAgent
 from godel_engine.environment import GodelEnvironment
 from godel_engine.evolution import Strategy
 from godel_engine.guards import run_strategy_guards
@@ -34,6 +37,7 @@ from godel_engine.provider_runtime import (
     DEFAULT_OPENAI_MODEL,
     ProviderCircuitBreaker,
     load_provider_configs,
+    provider_completion_kwargs,
 )
 from godel_engine.rollout import (
     action_json_prefix,
@@ -144,6 +148,28 @@ class ScriptedPatchAgent:
                 target_weaknesses=["missing evidence", "missing verification"],
             ),
         )
+
+
+def test_deterministic_agent_never_contacts_configured_provider(monkeypatch) -> None:
+    class BombClient:
+        def chat(self, *args, **kwargs):
+            raise AssertionError("deterministic mode contacted an LLM provider")
+
+    async def _run() -> None:
+        monkeypatch.setenv("GODEL_AGENT_MODE", "deterministic")
+        agent = AutoAgent()
+        agent.clients = [("bomb", "bomb-model", BombClient())]
+        action = await agent.act(
+            task_prompt="Improve the strategy.",
+            current_solution="",
+            rubrics={},
+            task_type="strategy_optimization",
+        )
+        assert action.strategy_patch is not None
+        assert agent.last_source == "deterministic"
+        assert agent.last_provider is None
+
+    asyncio.run(_run())
 
 
 def test_reset_can_target_specific_task_instance() -> None:
@@ -313,7 +339,10 @@ def test_strategy_patch_can_be_accepted_with_llm_evaluator() -> None:
     async def _run() -> None:
         env = GodelEnvironment(seed=42)
         env.strategy_evaluator = ScriptedLLMStrategyEvaluator()
-        await env.reset(task_type="strategy_optimization", task_id="godel01", seed=42)
+        reset_result = await env.reset(
+            task_type="strategy_optimization", task_id="godel01", seed=42
+        )
+        baseline_utility = reset_result.observation.total_score
         parent_id = env.current_strategy.id
 
         action = GodelAction(
@@ -334,11 +363,38 @@ def test_strategy_patch_can_be_accepted_with_llm_evaluator() -> None:
 
         result = await env.step(action)
         assert result.patch_decision is not None
+        assert result.patch_decision.parent_utility == baseline_utility
         assert result.patch_decision.accepted is True
         assert env.current_strategy.id != parent_id
         assert env.patches_accepted == 1
         assert result.reward > 0
         assert result.patch_decision.diagnostics["child_source_counts"] == {"llm:test": 3}
+
+    asyncio.run(_run())
+
+
+def test_strategy_reset_episode_id_makes_hidden_bundle_reproducible() -> None:
+    async def _run() -> None:
+        first = GodelEnvironment(seed=42)
+        second = GodelEnvironment(seed=42)
+        first_result = await first.reset(
+            task_type="strategy_optimization",
+            task_id="godel02",
+            seed=42,
+            episode_id="fixed-evidence-bundle",
+        )
+        second_result = await second.reset(
+            task_type="strategy_optimization",
+            task_id="godel02",
+            seed=42,
+            episode_id="fixed-evidence-bundle",
+        )
+        assert first_result.observation.total_score == pytest.approx(
+            second_result.observation.total_score
+        )
+        assert first_result.observation.downstream_scores == pytest.approx(
+            second_result.observation.downstream_scores
+        )
 
     asyncio.run(_run())
 
@@ -586,6 +642,16 @@ def test_freeform_prompt_uses_json_instruction() -> None:
 
 def test_provider_circuit_breaker_disables_after_connection_error() -> None:
     ProviderCircuitBreaker.reset()
+
+
+def test_provider_circuit_breaker_is_scoped_by_runtime_role() -> None:
+    ProviderCircuitBreaker.reset()
+    ProviderCircuitBreaker.record_failure(
+        "openai", RuntimeError("Connection error to provider"), scope="grader"
+    )
+    assert ProviderCircuitBreaker.is_disabled("openai", scope="grader")
+    assert not ProviderCircuitBreaker.is_disabled("openai", scope="agent")
+    ProviderCircuitBreaker.reset()
     ProviderCircuitBreaker.record_failure("openai", RuntimeError("Connection error to provider"))
     assert ProviderCircuitBreaker.is_disabled("openai")
     assert not ProviderCircuitBreaker.is_disabled("huggingface")
@@ -716,6 +782,20 @@ def test_openai_never_uses_hub_model_id_from_model_name(monkeypatch) -> None:
     openai_config = next(c for c in configs if c.name == "openai")
     assert openai_config.model_name == DEFAULT_OPENAI_MODEL
     assert "/" not in openai_config.model_name
+
+
+def test_ollama_completion_options_can_force_cpu(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_NUM_GPU", "0")
+    assert provider_completion_kwargs("ollama") == {
+        "extra_body": {"options": {"num_gpu": 0}}
+    }
+    assert provider_completion_kwargs("openai") == {}
+
+
+def test_ollama_completion_options_reject_invalid_gpu_count(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_NUM_GPU", "invalid")
+    with pytest.raises(ValueError, match="OLLAMA_NUM_GPU"):
+        provider_completion_kwargs("ollama")
 
 
 # ---------------------------------------------------------------------------

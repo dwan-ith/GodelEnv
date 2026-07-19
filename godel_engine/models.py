@@ -62,6 +62,55 @@ class AgentChallengeProposal(BaseModel):
     )
 
 
+class EnvironmentPatch(BaseModel):
+    """A bounded mutation of the curriculum, never of verifier code."""
+
+    task_type: str = Field(
+        ...,
+        description="Immutable verifier family used to score the evolved challenge.",
+    )
+    operator: str = Field(
+        ...,
+        description="Allowlisted mutation operator: deepen, contrast, or transfer.",
+    )
+    source_task_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=2,
+        description="One or two existing verified task IDs used as the challenge genome.",
+    )
+    target_success_rate: float = Field(
+        default=0.5,
+        ge=0.2,
+        le=0.8,
+        description="Desired solver success rate at the capability frontier.",
+    )
+    rationale: str = Field(
+        default="",
+        max_length=1000,
+        description="Why this mutation should expose a useful capability gap.",
+    )
+    parent_challenge_id: str | None = Field(
+        default=None,
+        description="Optional accepted challenge to mutate, creating environment lineage.",
+    )
+
+
+class EnvironmentPatchDecision(BaseModel):
+    """Environment Governor verdict for a proposed curriculum mutation."""
+
+    accepted: bool = False
+    challenge_id: str | None = None
+    novelty: float = 0.0
+    solvability: float = 0.0
+    current_strategy_score: float = 0.0
+    regret: float = 0.0
+    frontier_score: float = 0.0
+    learning_value: float = 0.0
+    rejection_reasons: list[str] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
 class StrategyPatch(BaseModel):
     """
     A proposed mutation to the agent's reasoning strategy.
@@ -166,6 +215,10 @@ class GodelAction(BaseModel):
         default=None,
         description="Optional: propose a new benchmark item (validated) for future held-out eval.",
     )
+    environment_patch: Optional[EnvironmentPatch] = Field(
+        default=None,
+        description="Optional verifier-preserving mutation of the challenge curriculum.",
+    )
 
 
 # ── Observation ───────────────────────────────────────────────────────
@@ -256,6 +309,14 @@ class GodelObservation(BaseModel):
         default="easy",
         description="Current curriculum difficulty band (adaptive / escalated).",
     )
+    environment_generation: int = Field(
+        default=0,
+        description="Deepest accepted challenge generation in the environment archive.",
+    )
+    environment_patch_history: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Recent accepted/rejected curriculum mutations.",
+    )
 
 
 # ── State ─────────────────────────────────────────────────────────────
@@ -279,6 +340,10 @@ class GodelState(BaseModel):
     patches_rejected: int = 0
     strategy_lineage: list[str] = Field(default_factory=list)
     current_strategy_elo: float = 1000.0
+    environment_patches_proposed: int = 0
+    environment_patches_accepted: int = 0
+    environment_patches_rejected: int = 0
+    environment_generation: int = 0
 
 
 # ── Reward Breakdown ──────────────────────────────────────────────────
@@ -319,6 +384,10 @@ class RewardBreakdown(BaseModel):
         0.0,
         description="Reward for accepted patches; penalty for rejected ones.",
     )
+    environment_quality: float = Field(
+        0.0,
+        description="Reward for verifier-safe, novel, solvable frontier challenge mutations.",
+    )
 
     total: float = Field(0.0, description="Sum of all channels (the scalar used by default)")
 
@@ -335,6 +404,7 @@ class RewardBreakdown(BaseModel):
             + self.cost_efficiency
             + self.stability_score
             + self.patch_quality
+            + self.environment_quality
         )
         return self.total
 
@@ -356,4 +426,8 @@ class GodelStepResult(BaseModel):
     patch_decision: Optional[PatchDecision] = Field(
         default=None,
         description="If a strategy patch was proposed, the Governor's verdict.",
+    )
+    environment_patch_decision: Optional[EnvironmentPatchDecision] = Field(
+        default=None,
+        description="If an environment patch was proposed, the Environment Governor verdict.",
     )

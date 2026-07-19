@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Sequence
 
-from godel_engine.models import EditType, GodelAction, StrategyPatch
+from godel_engine.models import EditType, EnvironmentPatch, GodelAction, StrategyPatch
 from godel_engine.tasks.alignment_qa import _ALIGNMENT_QA_DATASET
 from godel_engine.tasks.factual_qa import _QA_DATASET
 from godel_engine.tasks.reasoning import _REASONING_DATASET
@@ -476,6 +476,7 @@ def build_reference_action(
     reference: dict[str, Any] | None = None,
 ) -> GodelAction:
     patch = None
+    environment_patch = None
     effective_strategy = strategy_text
     if task_type == "strategy_optimization":
         patch = build_reference_strategy_patch(
@@ -484,6 +485,40 @@ def build_reference_action(
             downstream_scores=downstream_scores,
         )
         effective_strategy = patch.improved_strategy
+        supported_scores = {
+            name: score
+            for name, score in (downstream_scores or {"factual_qa": 0.0}).items()
+            if name in {"factual_qa", "alignment_qa"}
+        } or {"factual_qa": 0.0}
+        weak_family, weak_score = min(
+            supported_scores.items(),
+            key=lambda item: item[1],
+        )
+        offset = sum(ord(char) for char in task_prompt) % 5
+        if weak_family == "alignment_qa":
+            ids = [f"align{index:02d}" for index in range(1, 7)]
+            environment_patch = EnvironmentPatch(
+                task_type="alignment_qa",
+                operator="contrast" if weak_score > 0.75 else "deepen",
+                source_task_ids=(
+                    [ids[offset % len(ids)], ids[(offset + 1) % len(ids)]]
+                    if weak_score > 0.75
+                    else [ids[offset % len(ids)]]
+                ),
+                rationale="Stress-test the weakest alignment capability with a verifier-owned mutation.",
+            )
+        else:
+            ids = [f"qa{index:02d}" for index in range(1, 9)]
+            environment_patch = EnvironmentPatch(
+                task_type="factual_qa",
+                operator="contrast" if weak_score > 0.75 else "deepen",
+                source_task_ids=(
+                    [ids[offset % len(ids)], ids[(offset + 1) % len(ids)]]
+                    if weak_score > 0.75
+                    else [ids[offset % len(ids)]]
+                ),
+                rationale="Stress-test evidence grounding with a verifier-owned mutation.",
+            )
 
     solution = build_reference_solution(
         task_prompt=task_prompt,
@@ -501,6 +536,7 @@ def build_reference_action(
         edit_type=edit_type,
         strategy_note="Deterministic reference-grounded fallback action",
         strategy_patch=patch,
+        environment_patch=environment_patch,
     )
 
 

@@ -1,0 +1,41 @@
+{
+  "modes": {
+    "grading": "deterministic",
+    "strategy_eval": "llm"
+  },
+  "providers": [
+    {
+      "name": "ollama",
+      "configured": true,
+      "base_url": "http://localhost:11434/v1",
+      "model_name": "gemma4:e2b",
+      "disabled": false,
+      "disabled_reason": null
+    }
+  ],
+  "agent_source": "llm:ollama:gemma4:e2b",
+  "agent_provider": "ollama",
+  "agent_error": null,
+  "grading_source": null,
+  "grading_error": null,
+  "reward": -0.44883071161048677,
+  "score": 0.6735916666666666,
+  "patch_proposed": true,
+  "patch_accepted": false,
+  "patch_improvement": 0.0,
+  "strategy_eval_source_counts": {
+    "llm:ollama:gemma4:e2b": 4
+  },
+  "strategy_eval_last_error": null,
+  "environment_patch_proposed": true,
+  "environment_patch_accepted": false,
+  "environment_learning_value": 0.0,
+  "environment_rejection_reasons": [
+    "operator 'deepen' requires 1 distinct source task(s)"
+  ],
+  "environment_generation": 0,
+  "circuit_breaker": {
+    "disabled": false,
+    "reason": null
+  }
+}

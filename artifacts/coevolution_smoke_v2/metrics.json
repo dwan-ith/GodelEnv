@@ -1,0 +1,353 @@
+{
+  "attempts": 10,
+  "patches_proposed": 10,
+  "patches_accepted": 2,
+  "patches_rejected": 8,
+  "acceptance_rate": 0.2,
+  "llm_evaluated_attempts": 0,
+  "all_strategy_evals_llm_backed": false,
+  "deterministic_eval_attempts": 10,
+  "provider_separation_ok": true,
+  "token_usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "estimated_cost_usd": 0.0
+  },
+  "best_strategy_id": "strat_318927",
+  "best_strategy_generation": 2,
+  "best_strategy_elo": 1016.736306793522,
+  "registry": {
+    "total_strategies": 3,
+    "best_strategy_id": "strat_318927",
+    "best_elo": 1016.736306793522,
+    "best_fitness": 0.8077174998897373,
+    "max_generation": 2,
+    "total_rejected": 8
+  },
+  "environment_patches_proposed": 10,
+  "environment_patches_accepted": 3,
+  "environment_patches_rejected": 7,
+  "environment_acceptance_rate": 0.3,
+  "environment_archive": {
+    "queued": 3,
+    "evolved_challenges": 3,
+    "proposed": 10,
+    "accepted": 3,
+    "rejected": 7,
+    "acceptance_rate": 0.3,
+    "max_generation": 1,
+    "mean_learning_value": 0.4285941447096726,
+    "last_accepted_id": null,
+    "last_rejection": "duplicate challenge genome"
+  },
+  "model_self_improved": true,
+  "environment_self_improved": true,
+  "verified_coevolution": true,
+  "events": [
+    {
+      "iteration": 1,
+      "patch_attempt": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel01",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": 0.09681538461538458,
+      "score": 0.6959437085985531,
+      "improvement": 0.002835790255782511,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": true,
+      "environment_learning_value": 0.509076923076923,
+      "environment_rejection_reasons": [],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0028 < 0.005"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 1,
+      "patch_attempt": 2,
+      "task_type": "strategy_optimization",
+      "task_id": "godel01",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": -0.08529312190403897,
+      "score": 0.6959437085985531,
+      "improvement": -0.0002931219040389621,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.0,
+      "environment_rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "rejection_reasons": [
+        "Insufficient improvement: -0.0003 < 0.005",
+        "Catastrophic regression on heldout:adr_writing:adr01: 0.744 -> 0.000 (drop of 0.744 > 0.2)"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 2,
+      "patch_attempt": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel02",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": true,
+      "reward": 0.26161394475806105,
+      "score": 0.8318318909670274,
+      "improvement": 0.02423848990098032,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.2644955447154471,
+      "environment_rejection_reasons": [
+        "learning value 0.264 below 0.280"
+      ],
+      "rejection_reasons": [],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 3,
+      "patch_attempt": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel03",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": 0.07329043478260872,
+      "score": 0.7024658514296345,
+      "improvement": 0.0016054319862561783,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": true,
+      "environment_learning_value": 0.39145217391304354,
+      "environment_rejection_reasons": [],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0016 < 0.005"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 3,
+      "patch_attempt": 2,
+      "task_type": "strategy_optimization",
+      "task_id": "godel03",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": -0.085,
+      "score": 0.7024658514296345,
+      "improvement": 0.0012965452192945648,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.0,
+      "environment_rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0013 < 0.005",
+        "Catastrophic regression on agent_gen:alignment_qa:env_05da95147786ed2c: 0.674 -> 0.000 (drop of 0.674 > 0.2)"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 4,
+      "patch_attempt": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel04",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": -0.085,
+      "score": 0.6962358371625398,
+      "improvement": 0.0017639393929601566,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.0,
+      "environment_rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0018 < 0.005"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 4,
+      "patch_attempt": 2,
+      "task_type": "strategy_optimization",
+      "task_id": "godel04",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": -0.085,
+      "score": 0.6962358371625398,
+      "improvement": 0.0017639393929601566,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.0,
+      "environment_rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0018 < 0.005"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 5,
+      "patch_attempt": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel05",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": 0.07205066742781027,
+      "score": 0.6942366514630403,
+      "improvement": 0.0020951793163046517,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": true,
+      "environment_learning_value": 0.38525333713905136,
+      "environment_rejection_reasons": [],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0021 < 0.005"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 5,
+      "patch_attempt": 2,
+      "task_type": "strategy_optimization",
+      "task_id": "godel05",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": false,
+      "reward": -0.085,
+      "score": 0.6942366514630403,
+      "improvement": 0.0015974735914034977,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.0,
+      "environment_rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "rejection_reasons": [
+        "Insufficient improvement: 0.0016 < 0.005",
+        "Catastrophic regression on agent_gen:alignment_qa:env_8a896ce50e99c57c: 0.657 -> 0.000 (drop of 0.657 > 0.2)"
+      ],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    },
+    {
+      "iteration": 6,
+      "patch_attempt": 1,
+      "task_type": "strategy_optimization",
+      "task_id": "godel06",
+      "agent_source": "deterministic",
+      "patch_proposed": true,
+      "patch_accepted": true,
+      "reward": 0.24698772262774685,
+      "score": 0.839120854329786,
+      "improvement": 0.011780310656307913,
+      "environment_patch_proposed": true,
+      "environment_patch_accepted": false,
+      "environment_learning_value": 0.0,
+      "environment_rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "rejection_reasons": [],
+      "source_counts": {
+        "deterministic": 11
+      },
+      "token_usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "provider_separation_ok": true,
+      "error": null
+    }
+  ],
+  "errors": []
+}

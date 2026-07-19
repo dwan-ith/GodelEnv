@@ -37,6 +37,7 @@ from godel_engine.evolution import (
 from godel_engine.guards import run_all_guards, run_strategy_guards
 from godel_engine.models import (
     EditType,
+    EnvironmentPatchDecision,
     GodelAction,
     GodelObservation,
     GodelState,
@@ -89,6 +90,7 @@ class GodelEnvironment:
         self,
         seed: Optional[int] = None,
         registry: Optional[StrategyRegistry] = None,
+        challenge_pool: Optional[ChallengePool] = None,
     ) -> None:
         self.rng = random.Random(seed)
         self.tasks = {name: cls() for name, cls in self.TASKS.items()}
@@ -97,7 +99,7 @@ class GodelEnvironment:
         self.governor = Governor()
         self.curriculum = CurriculumController()
         self.strategy_evaluator = StrategyEvaluator(seed=seed or 42)
-        self.challenge_pool = ChallengePool()
+        self.challenge_pool = challenge_pool or ChallengePool()
 
         # Legacy aliases for backward compat
         self.pool = self.registry
@@ -122,6 +124,8 @@ class GodelEnvironment:
         self.patches_accepted = 0
         self.patches_rejected = 0
         self.patch_history: list[dict] = []
+        self.environment_patch_history: list[dict] = []
+        self._strategy_baseline_cache: tuple[Dict[str, float], Dict[str, float], dict] | None = None
 
     async def reset(
         self,
@@ -129,12 +133,13 @@ class GodelEnvironment:
         difficulty: Optional[str] = None,
         task_id: Optional[str] = None,
         seed: Optional[int] = None,
+        episode_id: Optional[str] = None,
     ) -> GodelStepResult:
         """Initialize a new episode and return the first observation."""
         if seed is not None:
             self.rng = random.Random(seed)
 
-        self.episode_id = str(uuid.uuid4())[:8]
+        self.episode_id = episode_id or str(uuid.uuid4())[:8]
         self.step_count = 0
         self.improvement_history = []
         self.reward_history = []
@@ -142,6 +147,8 @@ class GodelEnvironment:
         self.patches_accepted = 0
         self.patches_rejected = 0
         self.patch_history = []
+        self.environment_patch_history = []
+        self._strategy_baseline_cache = None
 
         chosen_task = self.tasks.get(task_type) if task_type else None
         if chosen_task is not None:
@@ -169,19 +176,36 @@ class GodelEnvironment:
         # Select a strategy from the registry
         self.current_strategy = self.registry.select()
 
-        try:
-            score, rubrics, feedback = await self.current_task.grade(
-                self.current_instance, self.current_solution
+        if self.current_task.name == "strategy_optimization":
+            axes, per_case, diagnostics = await self._evaluate_strategy_downstream(
+                self.current_strategy
             )
-        except Exception as exc:
-            if os.getenv("GODEL_GRADING_MODE", "auto").strip().lower() == "llm":
-                raise
-            logger.exception("Initial grading failed for %s", self.current_task.name)
-            self.current_task.last_grading_source = "deterministic"
-            self.current_task.last_grading_error = f"initial grading exception: {type(exc).__name__}"
-            score = 0.0
-            rubrics = {name: 0.0 for name in self.current_task._get_rubrics()}
-            feedback = {name: f"Initial grading error: {type(exc).__name__}" for name in rubrics}
+            self._strategy_baseline_cache = (axes, per_case, diagnostics)
+            score = self.governor.compute_utility(axes)
+            rubrics = axes
+            feedback = {
+                name: f"Parent strategy {name}: {value:.3f}"
+                for name, value in axes.items()
+            }
+            source_counts = diagnostics.get("source_counts", {})
+            self.current_task.last_grading_source = (
+                ",".join(sorted(source_counts)) if source_counts else "strategy_evaluator"
+            )
+            self.current_task.last_grading_error = diagnostics.get("last_error")
+        else:
+            try:
+                score, rubrics, feedback = await self.current_task.grade(
+                    self.current_instance, self.current_solution
+                )
+            except Exception as exc:
+                if os.getenv("GODEL_GRADING_MODE", "auto").strip().lower() == "llm":
+                    raise
+                logger.exception("Initial grading failed for %s", self.current_task.name)
+                self.current_task.last_grading_source = "deterministic"
+                self.current_task.last_grading_error = f"initial grading exception: {type(exc).__name__}"
+                score = 0.0
+                rubrics = {name: 0.0 for name in self.current_task._get_rubrics()}
+                feedback = {name: f"Initial grading error: {type(exc).__name__}" for name in rubrics}
 
         self.current_score = self._clamp(score)
         self.initial_score = self.current_score
@@ -255,9 +279,12 @@ class GodelEnvironment:
         )
 
         # Evaluate parent and child on held-out tasks
-        parent_scores, parent_per_task, parent_diagnostics = await self._evaluate_strategy_downstream(
-            self.current_strategy
-        )
+        if self._strategy_baseline_cache is not None:
+            parent_scores, parent_per_task, parent_diagnostics = self._strategy_baseline_cache
+        else:
+            parent_scores, parent_per_task, parent_diagnostics = await self._evaluate_strategy_downstream(
+                self.current_strategy
+            )
         child_scores, child_per_task, child_diagnostics = await self._evaluate_strategy_downstream(child)
 
         # Run strategy-level guards
@@ -316,11 +343,21 @@ class GodelEnvironment:
             self.huxley.record_lineage(self.current_strategy.id, child.id)
             self.registry.update_elo(child.id, self.current_strategy.id)
             self.current_strategy = child
+            self._strategy_baseline_cache = (
+                child_scores,
+                child_per_task,
+                child_diagnostics,
+            )
             patch_reward = 0.1 + decision.get("improvement", 0.0) * 0.5
         else:
             self.patches_rejected += 1
             self.registry.record_rejected_patch(self.current_strategy.id, decision)
             self.registry.update_elo(self.current_strategy.id, child.id)
+            self._strategy_baseline_cache = (
+                parent_scores,
+                parent_per_task,
+                parent_diagnostics,
+            )
             patch_reward = -0.05
 
         self.curriculum.record_meta_patch_outcome(bool(decision["accepted"]))
@@ -392,7 +429,10 @@ class GodelEnvironment:
             task: f"Score: {score:.3f}" for task, score in active_per_task.items()
         }
 
-        self._ingest_agent_challenge(action)
+        environment_decision = await self._ingest_environment_patch(action)
+        breakdown.environment_quality = self._environment_patch_reward(environment_decision)
+        reward = breakdown.compute_total()
+        self.reward_history[-1] = reward
 
         return GodelStepResult(
             observation=self._build_obs(rubrics, feedback),
@@ -401,6 +441,7 @@ class GodelEnvironment:
             terminated=terminated,
             truncated=truncated,
             patch_decision=patch_decision,
+            environment_patch_decision=environment_decision,
             info={
                 "delta": delta,
                 "proposed_delta": proposed_delta,
@@ -433,6 +474,11 @@ class GodelEnvironment:
                     "governor_accepted": bool(decision["accepted"]),
                 },
                 "challenge_pool": self.challenge_pool.as_stats(),
+                "environment_patch_decision": (
+                    environment_decision.model_dump(mode="json")
+                    if environment_decision
+                    else None
+                ),
                 "agent_challenges_mixed_in_eval": child_diagnostics.get("agent_challenges_mixed", 0),
             },
         )
@@ -478,6 +524,7 @@ class GodelEnvironment:
         format_score = self._check_format_compliance(action, self.current_task.name)
         process_reward = self._compute_process_reward(action, delta, format_score, guard_result.penalty)
 
+        environment_decision = await self._ingest_environment_patch(action)
         breakdown = RewardBreakdown(
             task_score_delta=delta,
             format_compliance=format_score,
@@ -485,6 +532,7 @@ class GodelEnvironment:
             step_cost=-0.005,
             anti_hack_penalty=guard_result.penalty,
             process_reward=process_reward,
+            environment_quality=self._environment_patch_reward(environment_decision),
         )
         reward = breakdown.compute_total()
         self.reward_history.append(reward)
@@ -526,14 +574,13 @@ class GodelEnvironment:
             self.registry.compute_cmp()
             self.curriculum.record_outcome(self.episode_difficulty, score)
 
-        self._ingest_agent_challenge(action)
-
         return GodelStepResult(
             observation=self._build_obs(rubrics, feedback),
             reward=reward,
             reward_breakdown=breakdown,
             terminated=terminated,
             truncated=truncated,
+            environment_patch_decision=environment_decision,
             info={
                 "delta": delta,
                 "step": self.step_count,
@@ -550,6 +597,11 @@ class GodelEnvironment:
                 ),
                 "grading_error": getattr(self.current_task, "last_grading_error", None),
                 "challenge_pool": self.challenge_pool.as_stats(),
+                "environment_patch_decision": (
+                    environment_decision.model_dump(mode="json")
+                    if environment_decision
+                    else None
+                ),
             },
         )
 
@@ -562,6 +614,41 @@ class GodelEnvironment:
             prompt=action.agent_challenge.prompt,
             source_episode=self.episode_id,
         )
+
+    async def _ingest_environment_patch(
+        self,
+        action: GodelAction,
+    ) -> EnvironmentPatchDecision | None:
+        """Evaluate curriculum mutations independently from strategy acceptance."""
+        self._ingest_agent_challenge(action)
+        if action.environment_patch is None:
+            return None
+        decision = await self.challenge_pool.evaluate_and_add(
+            action.environment_patch,
+            tasks=self.tasks,
+            strategy_evaluator=self.strategy_evaluator,
+            strategy_text=self.current_strategy.policy_text,
+            source_episode=self.episode_id,
+        )
+        self.environment_patch_history.append(
+            {
+                "step": self.step_count,
+                "accepted": decision.accepted,
+                "challenge_id": decision.challenge_id,
+                "learning_value": decision.learning_value,
+                "regret": decision.regret,
+                "reasons": list(decision.rejection_reasons),
+            }
+        )
+        return decision
+
+    @staticmethod
+    def _environment_patch_reward(decision: EnvironmentPatchDecision | None) -> float:
+        if decision is None:
+            return 0.0
+        if not decision.accepted:
+            return -0.04
+        return min(0.15, 0.04 + 0.2 * decision.learning_value)
 
     async def _evaluate_strategy_downstream(
         self,
@@ -612,6 +699,10 @@ class GodelEnvironment:
             patches_rejected=self.patches_rejected,
             strategy_lineage=self.registry.get_lineage_chain(self.current_strategy.id) if self.current_strategy else [],
             current_strategy_elo=self.current_strategy.elo if self.current_strategy else 1000.0,
+            environment_patches_proposed=self.challenge_pool.proposed,
+            environment_patches_accepted=self.challenge_pool.accepted,
+            environment_patches_rejected=self.challenge_pool.rejected,
+            environment_generation=self.challenge_pool.as_stats()["max_generation"],
         )
 
     @staticmethod
@@ -701,4 +792,6 @@ class GodelEnvironment:
             budget_remaining=self.max_steps - self.step_count,
             agent_challenges_queued=len(self.challenge_pool.items),
             curriculum_level=self.curriculum.current_difficulty,
+            environment_generation=self.challenge_pool.as_stats()["max_generation"],
+            environment_patch_history=self.environment_patch_history[-5:],
         )

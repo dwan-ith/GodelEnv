@@ -1,53 +1,21 @@
-# [Mini-Blog] A Training Environment Where "Better" Has to Mean Something
+# GodelEnv: The Model Improves, Then the World Moves
 
-When you train an LLM, you are not just teaching it to answer questions. You are shaping a latent *procedure* for how it approaches questions like what steps it runs through, which failure modes it slides past, how it balances depth against speed. Most RL environments treat that procedure as a black box. You observe a reply, assign a reward, and nudge the weights. The policy implicitly shifts, but you never directly negotiate with it.
+Most LLM reinforcement learning optimizes answers against a benchmark that never changes. GodelEnv asks a harder question: can the model improve its own reasoning procedure while the environment keeps generating the next useful challenge?
 
-GodelEnv makes that procedure a first-class object of training. During an episode, the agent has two available actions:
-- improve the current answer directly, or 
-- submit a `StrategyPatch`, a structured proposal that names what it would change about its own reasoning policy, why it expects the change to help, and which documented weaknesses it targets. 
+Every recursive action contains two proposals. A `StrategyPatch` rewrites the reusable reasoning policy. An `EnvironmentPatch` selects a bounded mutation of verified tasks. Two independent Governors decide what survives. The strategy Governor replays parent and child on hidden tasks and rejects weak gains, broad regressions, catastrophic failures, instability, canary failures, and evaluator leakage. The environment Governor owns the generated challenge and hidden reference, then checks novelty, teacher solvability, teacher-current regret, capability-frontier proximity, and total learning value. The LLM is never allowed to rewrite its tests.
 
-The environment's response to a patch is not to accept it optimistically but rather it runs a comparative evaluation between the current policy and the proposed one on a held-out task bundle, then applies a multi-objective acceptance criterion. The patch survives only if it demonstrates generalized improvement without regressions across the other task domains.
+That distinction matters because an earlier training run made the model worse while increasing aggregate reward. The repaired pipeline uses disjoint task IDs, paired held-out evaluation, six live environment-backed TRL rewards, completion-only LoRA SFT, weak-family repair, bootstrap intervals, and per-family promotion gates. Invalid JSON receives no repaired capability credit, and a checkpoint is not deployed merely because its average reward rose.
 
-That bar is hard to clear, and intentionally so. The naive failure mode of any self-modification scheme is that the agent learns to generate plausible-sounding improvements without actually producing them, with more elaborate language, longer reasoning chains, confident presentation, etc. GodelEnv counters this by using: 
-- The Governor that evaluates patches checks for cross-domain regression (a patch that helps reasoning but hurts factual QA fails outright), canary-based data leakage, and variance inflation. 
-- Reward is decomposed into a vector rather than a scalar: `task_score_delta`, `format_compliance`, `patch_quality`, `generalization_score`, and `anti_hack_penalty`. 
+The committed Qwen 0.5B experiment improved held-out mean score from `0.4356` to `0.4510` (`+0.0155`, paired 95% CI `[-0.0185, +0.0617]`). Environment reward rose from `-0.0589` to `0.0962` (`+0.1551`, 95% CI `[+0.0095, +0.3217]`), and strict schema validity rose from 50% to 87.5%. Raw adapters damaged factual and alignment behavior, so the promoted routed policy keeps untouched base weights for those families.
 
-When alignment QA and reasoning diverge in opposite directions, you see it in the logs rather than watching it disappear into an average.
+We report recursive evidence separately. A clean deterministic mechanism run proposed ten model and ten environment mutations, accepted two strategy descendants, admitted three frontier challenges, and persisted both lineages. A strict local `gemma4:e2b` smoke produced both mutation types and used the LLM for all recorded hidden strategy evaluations; both proposals were rejected by their Governors, demonstrating that hybrid execution does not bypass verification. An earlier hybrid smoke separately contains an accepted LLM strategy mutation.
 
-### Architecture & Training
+The promoted policy also crossed both recursive gates on held-out episodes: one strategy mutation was accepted with positive hidden-replay improvement, and one generated challenge was admitted with positive learning value. The run is therefore labeled `verified_coevolution`. The evidence boundary remains explicit: this is a bounded proof on two held-out strategy episodes, not a claim of open-ended autonomous self-improvement. The deterministic run separately proves repeated coupled mechanics, and the hybrid runs prove the live LLM integration.
 
-The environment is OpenEnv-compliant — standard `reset`, `step`, and `state` over HTTP — so existing TRL-based training pipelines connect without custom instrumentation. Evaluation runs against a mix of factual QA, alignment-style tasks, multi-step reasoning, and strategy optimization problems. 
+The goal is not an agent that declares itself better. It is a system where model improvement and environment improvement are both inspectable, replayable, and difficult to fake.
 
-When API connectivity is available, live LLM inference backs the evaluation logic; when it is not, a deterministic fallback keeps episodes from crashing mid-trajectory. A `GODEL_REQUIRE_LLM=1` flag enforces strict LLM-only evaluation when you need a clean audit trail.
-
-For training, a small local model first goes through supervised fine-tuning on teacher traces that demonstrate the structured action format — necessary because the verifier needs parseable JSON. GRPO then runs against the live environment signal. The full pipeline fits on CPU for verification; the Colab notebook scales to GPU as well.
-
----
-
-### Proof-of-Concept Results
-
-The results from a proof-of-concept run: 32 prompts, 60 SFT steps, 16 GRPO steps, GPT-2 backbone (~124M parameters) on CPU:
-
-| Metric | Baseline | Trained | Delta |
-|---|---|---|---|
-| Mean reward | -0.592 | -0.329 | **+0.263** |
-| Mean score | 0.117 | 0.105 | -0.012 |
-
-Per-task breakdown:
-
-| Task | Baseline | Trained | Delta |
-|---|---|---|---|
-| factual_qa | 0.159 | 0.159 | +0.000 |
-| alignment_qa | 0.096 | 0.113 | **+0.017** |
-| reasoning | 0.150 | 0.113 | -0.037 |
-| strategy_optimization | 0.063 | 0.034 | -0.029 |
-
-The reward improvement (+0.263) is real and statistically meaningful: 84% of trained episodes beat the baseline mean reward, and the trained distribution shifts right across the full 32-episode evaluation. Both policies achieved 100% structured JSON action rate — the model learns the action format reliably from SFT. Neither generated strategy patches (0% patch rate), which is expected: the recursive self-modification protocol requires the model to compose multi-field JSON with a hypothesis, target weaknesses, and an improved strategy — beyond the capacity of a short GPT-2 run.
-
-The per-task picture is honest and expected: alignment QA improved (+0.017), factual QA was essentially flat, and reasoning and strategy optimization regressed slightly. The reward gain is driven primarily by format compliance and process-channel rewards, not raw task accuracy. Task-level scores require more training capacity (larger model, longer run) to shift consistently upward. The environment surfaces this cleanly — no aggregated score hides the per-task regressions.
-
----
-
-### Conclusion
-
-GodelEnv is not a claim about the general trajectory of AI. It is a well-instrumented environment for studying one specific question: what happens when you give an agent explicit, verifiable control over its own reasoning policy and make it *earn* every proposed change? At this scale, it mostly fails to earn them and a good environment should be able to surface exactly that. Loss curves, reward curves, and full episode traces are committed in `artifacts/training_run/`.
+- [Live environment](https://huggingface.co/spaces/litterarum/GodelEnv)
+- [Training notebook](train_colab.ipynb)
+- [Training metrics and plots](artifacts/training_run/metrics.json)
+- [Coevolution metrics](artifacts/coevolution_smoke_v2/metrics.json)
+- [Hybrid dual-action smoke](artifacts/hybrid_coevolution_smoke.json)

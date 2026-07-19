@@ -1,6 +1,7 @@
 
 .env
 .venv
+.uv-cache/
 __pycache__/
 *.pyc
 *.pyo
@@ -19,4 +20,11 @@ fix_emoji.py
 artifacts/**/final_model/
 artifacts/**/sft/
 artifacts/**/grpo/
+artifacts/**/candidate_sft/
+artifacts/**/candidate_grpo/
+artifacts/test_*/
+artifacts/preflight*/
+artifacts/training_run_fixed/
+artifacts/training_run_*/
+artifacts/coevolution_smoke/
 pytest-cache-files-*/

@@ -42,6 +42,7 @@ class DemoActResponse(BaseModel):
     edit_type: str
     strategy_note: str
     strategy_patch: dict[str, Any] | None = None
+    environment_patch: dict[str, Any] | None = None
     agent_source: str
     agent_provider: str | None
     agent_error: str | None
@@ -104,6 +105,11 @@ async def demo_act(req: DemoActRequest) -> DemoActResponse:
         edit_type=action.edit_type.value if hasattr(action.edit_type, "value") else str(action.edit_type),
         strategy_note=action.strategy_note,
         strategy_patch=patch_dict,
+        environment_patch=(
+            action.environment_patch.model_dump(mode="json")
+            if action.environment_patch
+            else None
+        ),
         agent_source=agent.last_source,
         agent_provider=agent.last_provider,
         agent_error=agent.last_error,

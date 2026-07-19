@@ -126,6 +126,8 @@ class RecursiveSelfImprovementEnv:
         self.improvement_history: list[float] = []
         self.reward_history: list[float] = []
         self.patch_history: list[dict] = []
+        self.initial_score = 0.0
+        self.best_score = 0.0
 
         # Counters
         self.patches_proposed = 0
@@ -171,6 +173,8 @@ class RecursiveSelfImprovementEnv:
         self.last_axis_scores, self.last_per_domain_scores, self.last_diagnostics = (
             await self._evaluate_strategy(self.current_strategy)
         )
+        self.initial_score = self.governor.compute_utility(self.last_axis_scores)
+        self.best_score = self.initial_score
 
         return GodelStepResult(
             observation=self._build_observation(),
@@ -183,7 +187,7 @@ class RecursiveSelfImprovementEnv:
                 "episode_id": self.episode_id,
                 "strategy_id": self.current_strategy.id,
                 "strategy_generation": self.current_strategy.generation,
-                "baseline_utility": self.governor.compute_utility(self.last_axis_scores),
+                "baseline_utility": self.initial_score,
                 "per_domain_scores": self.last_per_domain_scores,
                 "registry_stats": self.registry.get_stats(),
             },
@@ -519,15 +523,14 @@ class RecursiveSelfImprovementEnv:
 
     def state(self) -> GodelState:
         """Return the current episode state."""
+        current_score = self.governor.compute_utility(self.last_axis_scores)
+        self.best_score = max(self.best_score, current_score)
         return GodelState(
             episode_id=self.episode_id,
             step_count=self.step_count,
-            current_score=self.governor.compute_utility(self.last_axis_scores),
-            best_score=max(
-                [self.governor.compute_utility(self.last_axis_scores)]
-                + [0.0]  # Ensure non-empty
-            ),
-            initial_score=self.improvement_history[0] if self.improvement_history else 0.0,
+            current_score=current_score,
+            best_score=self.best_score,
+            initial_score=self.initial_score,
             total_cost=self.step_count * 0.005,
             cumulative_reward=sum(self.reward_history),
             improvement_trajectory=list(self.improvement_history),

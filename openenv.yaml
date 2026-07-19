@@ -1,26 +1,24 @@
 environment_name: GodelEnv
 version: 2.0.0
 description: >
-  An OpenEnv environment for training agents to propose, test, and selectively
-  adopt self-modifications to their own reasoning strategies under verifier-backed
-  meta-evaluation. Recursive self-improvement is the organizing principle — task
-  families (factual_qa, code_improvement, reasoning, etc.) serve as evaluation
-  substrate, not primary tasks. Follows the AlphaEvolve pattern: LLM proposals +
-  automated verifiers + evolutionary selection.
+  An OpenEnv environment for verifier-governed coevolution: agents improve their
+  reasoning strategies while the environment evolves a persistent frontier-task
+  curriculum. Generated actions never control hidden references, graders, rewards,
+  or Governor thresholds.
 author: litterarum
 license: MIT
 
 core_concept: >
   Practical approximation of Gödel-machine-style self-improvement:
   - Self-modification is explicit (StrategyPatch)
+  - Environment evolution is explicit and verifier-preserving (EnvironmentPatch)
   - Improvement proposals are testable (held-out evaluation)
-  - Acceptance depends on objective evidence (Governor with multi-gate verification)
+  - Independent Governors admit only model and curriculum improvements
   - Not vibes
 
 actions:
   schema:
     type: object
-    required: [solution]
     properties:
       solution:
         type: string
@@ -34,18 +32,29 @@ actions:
         description: Optional note explaining the edit.
       strategy_patch:
         type: object
-        description: Optional recursive self-improvement patch evaluated on held-out downstream tasks.
+        description: Model mutation evaluated against its parent on held-out downstream tasks.
         properties:
           improved_strategy: { type: string }
           diff_description: { type: string }
           hypothesis: { type: string }
           target_weaknesses: { type: array, items: { type: string } }
+      environment_patch:
+        type: object
+        description: >
+          Verifier-preserving curriculum mutation. Required together with a
+          strategy patch on strategy_optimization episodes.
+        properties:
+          task_type: { type: string, enum: [factual_qa, alignment_qa] }
+          operator: { type: string, enum: [deepen, contrast, transfer] }
+          source_task_ids: { type: array, minItems: 1, maxItems: 2, items: { type: string } }
+          target_success_rate: { type: number, minimum: 0.2, maximum: 0.8 }
+          rationale: { type: string }
+          parent_challenge_id: { type: string }
       agent_challenge:
         type: object
         description: >
-          Optional agent-authored challenge (allowlisted task family) stored in
-          a pool; may be mixed into future held-out strategy eval. Set env
-          GODEL_AGENT_CHALLENGES=0 to disable.
+          Deprecated free-text compatibility surface. It is not counted as
+          environment self-improvement evidence.
         properties:
           task_type: { type: string, enum: [factual_qa] }
           prompt: { type: string }
@@ -82,6 +91,8 @@ observations:
       patch_history: { type: array, items: { type: object } }
       budget_remaining: { type: integer }
       agent_challenges_queued: { type: integer }
+      environment_generation: { type: integer }
+      environment_patch_history: { type: array, items: { type: object } }
       curriculum_level: { type: string }
 
 reward:
@@ -115,6 +126,11 @@ reward:
     stability_score:
       description: Bonus for low variance across held-out task families.
       range: [0.0, 0.05]
+    environment_quality:
+      description: >
+        Reward for an admitted verifier-backed frontier challenge; penalty for
+        an invalid, duplicate, impossible, mastered, or low-value mutation.
+      range: [-0.04, 0.15]
   total: "Sum of all channels"
   termination:
     - "accepted_patch: Governor accepts a StrategyPatch into the registry"
@@ -151,6 +167,11 @@ guards:
     - name: strategy_length_guard
       penalty: [-0.3, -0.2]
       applies_to: [strategy_patch]
+    - name: immutable_environment_verifier
+      applies_to: [environment_patch]
+      description: >
+        The action selects only allowlisted operators and immutable source task
+        IDs; challenge references and admission metrics are environment-owned.
 
 curriculum:
   difficulty_ladder: [easy, medium, hard, godel]
@@ -192,6 +213,15 @@ training:
   algorithm: GRPO
   script: train.py
   notebook: train_colab.ipynb
+  recursive_action_contract: StrategyPatch plus EnvironmentPatch
+  promotion_gates:
+    - heldout_mean_score
+    - heldout_reward
+    - strict_schema
+    - per_example_regression
+    - per_family_regression
+    - model_recursive_evidence
+    - environment_recursive_evidence
   default_modes:
     grading: deterministic
     strategy_eval: deterministic

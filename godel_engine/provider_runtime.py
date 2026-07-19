@@ -25,7 +25,11 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Any
 
+import httpx
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 
@@ -310,6 +314,107 @@ def load_provider_config(*, order_env: str = "GODEL_PROVIDER_ORDER") -> Provider
     )
 
 
+def provider_completion_kwargs(provider_name: str) -> dict[str, Any]:
+    """Return explicit, provider-specific chat-completion options.
+
+    Ollama normally chooses its accelerator automatically. ``OLLAMA_NUM_GPU``
+    lets deployments force CPU inference (0) or a specific GPU-layer count
+    without leaking Ollama-only fields to other OpenAI-compatible providers.
+    """
+    if provider_name != "ollama":
+        return {}
+
+    raw_num_gpu = _env("OLLAMA_NUM_GPU")
+    if raw_num_gpu is None:
+        return {}
+    try:
+        num_gpu = int(raw_num_gpu)
+    except ValueError as exc:
+        raise ValueError("OLLAMA_NUM_GPU must be a non-negative integer") from exc
+    if num_gpu < 0:
+        raise ValueError("OLLAMA_NUM_GPU must be a non-negative integer")
+    return {"extra_body": {"options": {"num_gpu": num_gpu}}}
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    value = _env(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+class _OllamaNativeCompletions:
+    """Minimal Ollama adapter matching the AsyncOpenAI completion surface."""
+
+    def __init__(self, base_url: str) -> None:
+        root = base_url.rstrip("/")
+        self.base_url = root[:-3] if root.endswith("/v1") else root
+
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float | None = None,
+        response_format: dict[str, str] | None = None,
+        extra_body: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> SimpleNamespace:
+        options: dict[str, Any] = {"num_predict": max_tokens}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if extra_body and isinstance(extra_body.get("options"), dict):
+            options.update(extra_body["options"])
+
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            # Reasoning-only tokens are not usable as environment actions.
+            "think": _env_flag("OLLAMA_THINK", False),
+            "options": options,
+        }
+        if response_format and response_format.get("type") == "json_object":
+            body["format"] = "json"
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            response = await client.post(f"{self.base_url}/api/chat", json=body)
+            response.raise_for_status()
+            payload = response.json()
+
+        message = payload.get("message") or {}
+        usage = SimpleNamespace(
+            prompt_tokens=int(payload.get("prompt_eval_count", 0) or 0),
+            completion_tokens=int(payload.get("eval_count", 0) or 0),
+            total_tokens=int(payload.get("prompt_eval_count", 0) or 0)
+            + int(payload.get("eval_count", 0) or 0),
+        )
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=str(message.get("content", "")))
+                )
+            ],
+            usage=usage,
+        )
+
+
+class _OllamaNativeClient:
+    def __init__(self, base_url: str) -> None:
+        self.chat = SimpleNamespace(completions=_OllamaNativeCompletions(base_url))
+
+
+def build_provider_client(provider: ProviderConfig) -> Any:
+    """Build a provider client while preserving Ollama's native controls."""
+    if provider.name == "ollama":
+        return _OllamaNativeClient(provider.base_url or DEFAULT_OLLAMA_BASE_URL)
+    return AsyncOpenAI(
+        api_key=provider.api_key,
+        base_url=provider.base_url if provider.base_url else None,
+    )
+
+
 def describe_provider_configs(*, order_env: str = "GODEL_PROVIDER_ORDER") -> list[dict[str, str | bool | None]]:
     return [
         {
@@ -344,6 +449,8 @@ def describe_provider_environment() -> dict[str, bool]:
         # Ollama (local)
         "OLLAMA_API_BASE_URL": bool(_env("OLLAMA_API_BASE_URL")),
         "OLLAMA_MODEL_NAME": bool(_env("OLLAMA_MODEL_NAME")),
+        "OLLAMA_NUM_GPU": bool(_env("OLLAMA_NUM_GPU")),
+        "OLLAMA_THINK": bool(_env("OLLAMA_THINK")),
         "GODEL_USE_OLLAMA": bool(_env("GODEL_USE_OLLAMA")),
     }
 
@@ -363,30 +470,42 @@ def is_llm_available() -> bool:
 
 
 class ProviderCircuitBreaker:
-    """Disable repeated retries for only the providers that actually failed."""
+    """Disable repeated retries without coupling independent runtime roles."""
 
     _disabled: dict[str, str] = {}
 
     @classmethod
-    def is_disabled(cls, provider_name: str | None = None) -> bool:
-        if provider_name is None:
-            return bool(cls._disabled)
-        return provider_name in cls._disabled
+    def _key(cls, provider_name: str, scope: str | None = None) -> str:
+        return f"{scope}:{provider_name}" if scope else provider_name
 
     @classmethod
-    def reason(cls, provider_name: str | None = None) -> str | None:
+    def is_disabled(
+        cls, provider_name: str | None = None, *, scope: str | None = None
+    ) -> bool:
+        if provider_name is None:
+            return bool(cls._disabled)
+        return cls._key(provider_name, scope) in cls._disabled
+
+    @classmethod
+    def reason(
+        cls, provider_name: str | None = None, *, scope: str | None = None
+    ) -> str | None:
         if provider_name is None:
             if not cls._disabled:
                 return None
             return "; ".join(f"{name}: {reason}" for name, reason in sorted(cls._disabled.items()))
-        return cls._disabled.get(provider_name)
+        return cls._disabled.get(cls._key(provider_name, scope))
 
     @classmethod
-    def disable(cls, provider_name: str, reason: str) -> None:
-        cls._disabled[provider_name] = reason
+    def disable(
+        cls, provider_name: str, reason: str, *, scope: str | None = None
+    ) -> None:
+        cls._disabled[cls._key(provider_name, scope)] = reason
 
     @classmethod
-    def reset(cls, provider_name: str | None = None) -> None:
+    def reset(
+        cls, provider_name: str | None = None, *, scope: str | None = None
+    ) -> None:
         global _warned_no_providers, _logged_provider_info
         if provider_name is None:
             cls._disabled = {}
@@ -394,10 +513,19 @@ class ProviderCircuitBreaker:
             _warned_no_providers = False
             _logged_provider_info = False
             return
+        if scope is not None:
+            cls._disabled.pop(cls._key(provider_name, scope), None)
+            return
         cls._disabled.pop(provider_name, None)
+        suffix = f":{provider_name}"
+        cls._disabled = {
+            key: value for key, value in cls._disabled.items() if not key.endswith(suffix)
+        }
 
     @classmethod
-    def record_failure(cls, provider_name: str, exc: Exception) -> str:
+    def record_failure(
+        cls, provider_name: str, exc: Exception, *, scope: str | None = None
+    ) -> str:
         message = f"{type(exc).__name__}: {exc}"
         lowered = message.lower()
         if provider_name == "huggingface" and (
@@ -438,5 +566,5 @@ class ProviderCircuitBreaker:
         if any(s in lowered for s in soft_fail_markers):
             return message
         if any(marker in lowered for marker in hard_fail_markers):
-            cls.disable(provider_name, message)
+            cls.disable(provider_name, message, scope=scope)
         return message

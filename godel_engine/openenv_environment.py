@@ -18,7 +18,7 @@ from openenv.core.env_server.interfaces import Environment
 
 from godel_engine.async_utils import run_async
 from godel_engine.environment import GodelEnvironment
-from godel_engine.models import AgentChallengeProposal, EditType, GodelAction
+from godel_engine.models import AgentChallengeProposal, EditType, EnvironmentPatch, GodelAction
 from godel_engine.openenv_models import (
     GodelOpenEnvAction,
     GodelOpenEnvObservation,
@@ -48,6 +48,7 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
                 difficulty=difficulty,
                 task_id=task_id,
                 seed=seed,
+                episode_id=episode_id,
             )
         )
         obs = result.observation
@@ -90,6 +91,8 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             budget_remaining=obs.budget_remaining,
             agent_challenges_queued=obs.agent_challenges_queued,
             curriculum_level=obs.curriculum_level,
+            environment_generation=obs.environment_generation,
+            environment_patch_history=list(obs.environment_patch_history),
             reward_breakdown=result.reward_breakdown.model_dump(mode="json"),
             patch_decision=None,
         )
@@ -102,17 +105,27 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             else EditType.REWRITE
         )
         
-        # Handle strategy_patch as either StrategyPatch object or dict
+        # Normalize nested actions before crossing into the internal environment.
         strategy_patch = action.strategy_patch
         if isinstance(strategy_patch, dict):
             from godel_engine.models import StrategyPatch
             strategy_patch = StrategyPatch(**strategy_patch)
-        
+
+        agent_challenge = action.agent_challenge
+        if isinstance(agent_challenge, dict):
+            agent_challenge = AgentChallengeProposal(**agent_challenge)
+
+        environment_patch = action.environment_patch
+        if isinstance(environment_patch, dict):
+            environment_patch = EnvironmentPatch(**environment_patch)
+
         internal_action = GodelAction(
             solution=action.solution,
             edit_type=edit_type,
             strategy_note=action.strategy_note or "",
             strategy_patch=strategy_patch,
+            agent_challenge=agent_challenge,
+            environment_patch=environment_patch,
         )
 
         result = run_async(self._env.step(internal_action))
@@ -132,6 +145,10 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             patches_rejected=state.patches_rejected,
             strategy_lineage=list(state.strategy_lineage),
             current_strategy_elo=state.current_strategy_elo,
+            environment_patches_proposed=state.environment_patches_proposed,
+            environment_patches_accepted=state.environment_patches_accepted,
+            environment_patches_rejected=state.environment_patches_rejected,
+            environment_generation=state.environment_generation,
         )
 
         done = bool(result.terminated or result.truncated)
@@ -146,6 +163,11 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
                 else None,
                 "terminated": result.terminated,
                 "truncated": result.truncated,
+                "environment_patch_decision": (
+                    result.environment_patch_decision.model_dump(mode="json")
+                    if result.environment_patch_decision
+                    else None
+                ),
             },
             episode_id=obs.episode_id,
             task_id=obs.task_id,
@@ -171,6 +193,8 @@ class GodelOpenEnvEnvironment(Environment[GodelOpenEnvAction, GodelOpenEnvObserv
             budget_remaining=obs.budget_remaining,
             agent_challenges_queued=obs.agent_challenges_queued,
             curriculum_level=obs.curriculum_level,
+            environment_generation=obs.environment_generation,
+            environment_patch_history=list(obs.environment_patch_history),
             reward_breakdown=result.reward_breakdown.model_dump(mode="json"),
             patch_decision=result.patch_decision.model_dump(mode="json")
             if result.patch_decision

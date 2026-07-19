@@ -43,7 +43,35 @@ _ADR_DATASET = [
             ("latency", "cold start"),
             ("observability", "debugging"),
         ],
-    }
+    },
+    {
+        "id": "adr02",
+        "prompt": "Turn this note into an ADR for incrementally replacing synchronous monolith integrations with serverless event-driven processing.",
+        "initial_solution": "Use functions and a queue instead of synchronous calls. It should scale better, but operations will change.",
+        "required_sections": [
+            ("title", "# title", "adr"),
+            ("status",),
+            ("context",),
+            ("decision",),
+            ("consequences",),
+            ("alternatives",),
+        ],
+        "coverage_groups": [
+            ("monolith", "existing system"),
+            ("serverless", "functions"),
+            ("event-driven", "events"),
+            ("queue", "message bus"),
+            ("cost", "cost profile"),
+            ("operations", "operational"),
+            ("developer experience", "developer productivity", "team"),
+        ],
+        "tradeoff_groups": [
+            ("benefit", "advantage", "positive"),
+            ("risk", "drawback", "negative"),
+            ("latency", "cold start"),
+            ("observability", "debugging"),
+        ],
+    },
 ]
 
 

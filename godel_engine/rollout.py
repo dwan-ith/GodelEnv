@@ -10,14 +10,16 @@ GodelEnv: The rollout system now supports two modes:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import random
 import re
 from typing import Any, Dict, List, Optional
 
 from godel_engine.async_utils import run_async
 from godel_engine.environment import GodelEnvironment
-from godel_engine.models import EditType, GodelAction, StrategyPatch
+from godel_engine.models import EditType, EnvironmentPatch, GodelAction, StrategyPatch
 
 
 logger = logging.getLogger("godel_env.rollout")
@@ -72,6 +74,99 @@ def action_json_prefix(task_type: str) -> str:
     if task_type == "strategy_optimization":
         return '{\n  "improved_strategy": "'
     return '{\n  "solution": "'
+
+
+def format_policy_prompt(tokenizer, prompt: str, task_type: str) -> str:
+    """Format a policy prompt consistently for SFT, GRPO, and evaluation."""
+    formatted = prompt
+    if getattr(tokenizer, "chat_template", None):
+        try:
+            formatted = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except Exception as exc:
+            logger.warning("Chat template formatting failed; using raw prompt: %s", exc)
+    return formatted + action_json_prefix(task_type)
+
+
+def reconstruct_action_completion(generated_text: str, task_type: str) -> str:
+    """Reconstruct the full action when the prompt supplied the opening JSON prefix."""
+    stripped = (generated_text or "").strip()
+    if stripped.startswith("{"):
+        return stripped
+    return action_json_prefix(task_type) + (generated_text or "")
+
+
+def inspect_action_completion(completion: str, task_type: str) -> dict[str, Any]:
+    """Strictly inspect generated action JSON without using repair heuristics."""
+    expected_patch = task_type == "strategy_optimization"
+    diagnostics: dict[str, Any] = {
+        "valid_json": False,
+        "schema_valid": False,
+        "expected_patch": expected_patch,
+        "expected_environment_patch": expected_patch,
+        "has_patch": False,
+        "has_environment_patch": False,
+        "errors": [],
+    }
+    blob = _extract_json_blob(completion)
+    if blob is None:
+        diagnostics["errors"].append("missing_complete_json_object")
+        return diagnostics
+
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError as exc:
+        diagnostics["errors"].append(f"invalid_json:{exc.msg}")
+        return diagnostics
+    if not isinstance(data, dict):
+        diagnostics["errors"].append("root_must_be_object")
+        return diagnostics
+
+    diagnostics["valid_json"] = True
+    diagnostics["has_patch"] = isinstance(data.get("improved_strategy"), str)
+    if "environment_patch" in data:
+        try:
+            EnvironmentPatch(**data["environment_patch"])
+            diagnostics["has_environment_patch"] = True
+        except Exception:
+            diagnostics["errors"].append("invalid_environment_patch")
+
+    required = ["solution", "edit_type", "strategy_note"]
+    if expected_patch:
+        required = [
+            "improved_strategy",
+            "diff_description",
+            "hypothesis",
+            "target_weaknesses",
+            "environment_patch",
+        ]
+    missing = [name for name in required if name not in data]
+    if missing:
+        diagnostics["errors"].append("missing_fields:" + ",".join(missing))
+
+    for name in ["solution", "strategy_note"]:
+        if name in data and (not isinstance(data[name], str) or not data[name].strip()):
+            diagnostics["errors"].append(f"{name}_must_be_nonempty_string")
+    if expected_patch:
+        for name in ["improved_strategy", "diff_description", "hypothesis"]:
+            if name in data and (not isinstance(data[name], str) or not data[name].strip()):
+                diagnostics["errors"].append(f"{name}_must_be_nonempty_string")
+        weaknesses = data.get("target_weaknesses")
+        if weaknesses is not None and (
+            not isinstance(weaknesses, list)
+            or not all(isinstance(item, str) and item.strip() for item in weaknesses)
+        ):
+            diagnostics["errors"].append("target_weaknesses_must_be_string_list")
+
+    edit_type = str(data.get("edit_type", "")).upper()
+    if "edit_type" in data and edit_type not in EditType.__members__:
+        diagnostics["errors"].append("invalid_edit_type")
+
+    diagnostics["schema_valid"] = not diagnostics["errors"]
+    return diagnostics
 
 
 def _extract_json_field(text: str, field_name: str) -> str | None:
@@ -153,11 +248,15 @@ def parse_completion_to_action(
                     hypothesis=str(data.get("hypothesis", "")),
                     target_weaknesses=data.get("target_weaknesses", []),
                 )
+                environment_patch = None
+                if isinstance(data.get("environment_patch"), dict):
+                    environment_patch = EnvironmentPatch(**data["environment_patch"])
                 return GodelAction(
                     solution=str(data.get("solution", data["improved_strategy"])),
                     edit_type=EditType.REWRITE,
                     strategy_note=str(data.get("strategy_note", "Strategy patch proposal")),
                     strategy_patch=patch,
+                    environment_patch=environment_patch,
                 )
 
             # Standard answer-improvement parsing
@@ -302,10 +401,14 @@ def build_prompt(
     # Strategy optimization tasks should produce strategy patches
     if task_type == "strategy_optimization":
         output_instruction = (
-            "Generate one JSON action that proposes an improved reasoning strategy.\n"
+            "Generate one compact JSON strategy patch.\n"
             "Required keys, in order: improved_strategy, diff_description, "
-            "hypothesis, target_weaknesses, solution, edit_type, strategy_note.\n"
-            "Use real task-specific content for every value. Do not copy field descriptions.\n"
+            "hypothesis, target_weaknesses, environment_patch.\n"
+            "environment_patch must select a factual_qa or alignment_qa task family, "
+            "an allowlisted deepen/contrast/transfer operator, and valid source task IDs.\n"
+            "Keep the revised strategy reusable and concise; the environment will "
+            "apply it to held-out tasks, so do not duplicate a demonstration or add "
+            "solution/edit metadata. Use real task-specific content.\n"
         )
     else:
         output_instruction = (
@@ -358,24 +461,38 @@ def collect_local_prompt_dataset(
     num_prompts: int = 32,
     tasks: Optional[List[str]] = None,
     seed: int = 42,
+    task_ids_by_type: Optional[Dict[str, List[str]]] = None,
+    split_name: str = "unspecified",
 ) -> List[Dict[str, Any]]:
-    """Collect reset states from the local deterministic environment."""
+    """Collect reset states without accidentally skipping most task IDs."""
     # The dataset includes prompt text plus task metadata/reference objects used
     # for reference-grounded teacher traces during local training.
     env = GodelEnvironment(seed=seed)
     task_names = tasks or list(env.tasks.keys())
-    dataset: List[Dict[str, str]] = []
+    dataset: List[Dict[str, Any]] = []
 
     async def _collect() -> None:
-        task_instances: dict[str, list[str]] = {
-            name: [item["id"] for item in getattr(env.tasks[name], "dataset", [])]
-            for name in task_names
-        }
+        task_instances: dict[str, list[str]] = {}
+        for name in task_names:
+            available = [item["id"] for item in getattr(env.tasks[name], "dataset", [])]
+            requested = (task_ids_by_type or {}).get(name)
+            if requested is not None:
+                unknown = sorted(set(requested) - set(available))
+                if unknown:
+                    raise ValueError(f"Unknown task ids for {name}: {unknown}")
+                available = list(requested)
+            if not available:
+                raise ValueError(f"Task {name} has no available instances")
+            task_instances[name] = available
+
+        per_task_index = {name: 0 for name in task_names}
 
         for index in range(num_prompts):
             task_type = task_names[index % len(task_names)]
-            candidates = task_instances.get(task_type) or [""]
-            task_id = candidates[index % len(candidates)] or None
+            candidates = task_instances[task_type]
+            task_offset = per_task_index[task_type]
+            task_id = candidates[task_offset % len(candidates)]
+            per_task_index[task_type] += 1
             result = await env.reset(task_type=task_type, task_id=task_id, seed=seed + index)
             obs = result.observation
             dataset.append(
@@ -393,7 +510,8 @@ def collect_local_prompt_dataset(
                     ),
                     "task_type": obs.task_type,
                     "task_id": obs.task_id,
-                    "initial_score": f"{obs.total_score:.4f}",
+                    "initial_score": float(obs.total_score),
+                    "split": split_name,
                     "strategy_text": obs.current_strategy,
                     "strategy_id": obs.strategy_id,
                     "downstream_scores": dict(obs.downstream_scores),
@@ -404,6 +522,78 @@ def collect_local_prompt_dataset(
 
     run_async(_collect())
     return dataset
+
+
+def split_task_ids(
+    tasks: List[str],
+    *,
+    eval_fraction: float = 0.25,
+    seed: int = 42,
+) -> tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Create deterministic, task-stratified, disjoint train/eval ID splits."""
+    if not 0.0 < eval_fraction < 1.0:
+        raise ValueError("eval_fraction must be between 0 and 1")
+
+    env = GodelEnvironment(seed=seed)
+    train_ids: Dict[str, List[str]] = {}
+    eval_ids: Dict[str, List[str]] = {}
+    for task_type in tasks:
+        task = env.tasks.get(task_type)
+        if task is None:
+            raise ValueError(f"Unknown task type: {task_type}")
+        ids = [str(item["id"]) for item in getattr(task, "dataset", [])]
+        if len(ids) < 2:
+            raise ValueError(
+                f"Task {task_type} needs at least two instances for a leakage-free split; found {len(ids)}"
+            )
+
+        digest = hashlib.sha256(f"{seed}:{task_type}".encode("utf-8")).digest()
+        task_seed = int.from_bytes(digest[:8], "big")
+        rng = random.Random(task_seed)
+        rng.shuffle(ids)
+        eval_count = min(len(ids) - 1, max(1, round(len(ids) * eval_fraction)))
+        eval_ids[task_type] = sorted(ids[:eval_count])
+        train_ids[task_type] = sorted(ids[eval_count:])
+
+    return train_ids, eval_ids
+
+
+def collect_train_eval_prompt_datasets(
+    *,
+    num_train_prompts: int,
+    tasks: List[str],
+    eval_fraction: float = 0.25,
+    seed: int = 42,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Dict[str, List[str]]]]:
+    """Build train prompts plus one held-out prompt for every evaluation ID."""
+    train_ids, eval_ids = split_task_ids(tasks, eval_fraction=eval_fraction, seed=seed)
+    train_data = collect_local_prompt_dataset(
+        num_prompts=num_train_prompts,
+        tasks=tasks,
+        seed=seed,
+        task_ids_by_type=train_ids,
+        split_name="train",
+    )
+    eval_data: List[Dict[str, Any]] = []
+    for task_offset, task_type in enumerate(tasks):
+        ids = eval_ids[task_type]
+        eval_data.extend(
+            collect_local_prompt_dataset(
+                num_prompts=len(ids),
+                tasks=[task_type],
+                seed=seed + 10_000 + task_offset * 100,
+                task_ids_by_type={task_type: ids},
+                split_name="heldout",
+            )
+        )
+
+    train_keys = {(item["task_type"], item["task_id"]) for item in train_data}
+    eval_keys = {(item["task_type"], item["task_id"]) for item in eval_data}
+    overlap = train_keys & eval_keys
+    if overlap:
+        raise RuntimeError(f"Train/eval leakage detected: {sorted(overlap)}")
+
+    return train_data, eval_data, {"train_ids": train_ids, "eval_ids": eval_ids}
 
 
 def make_local_grpo_rollout(max_new_tokens: int = 256):

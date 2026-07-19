@@ -1,0 +1,8 @@
+{
+  "type": "task_conditional_lora",
+  "base_fallback_tasks": [
+    "alignment_qa",
+    "factual_qa"
+  ],
+  "task_regression_tolerance": 0.02
+}

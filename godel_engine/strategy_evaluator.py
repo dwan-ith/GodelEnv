@@ -37,14 +37,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
 
 from godel_engine.challenge_pool import synthetic_factual_reference
 from godel_engine.deterministic_solver import solve_task
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
+    build_provider_client,
     describe_provider_configs,
     load_provider_configs,
+    provider_completion_kwargs,
 )
 from godel_engine.tasks.base import TaskInstance
 
@@ -74,14 +75,16 @@ class StrategyEvaluator:
 
     def __init__(self, *, seed: int = 42, timeout: int = 45, max_cases: int = 8) -> None:
         self.seed = seed
-        self.timeout = timeout
+        self.timeout = int(
+            os.getenv("GODEL_STRATEGY_EVAL_TIMEOUT", str(timeout)) or timeout
+        )
         self.max_cases = int(os.getenv("GODEL_STRATEGY_EVAL_MAX_CASES", str(max_cases)) or max_cases)
         self.max_tokens = int(os.getenv("GODEL_EVAL_MAX_TOKENS", "900") or 900)
         # Default runtime is LLM-required. Deterministic evaluation is still
         # available for local tests, but it must be explicitly requested.
         self.mode = os.getenv("GODEL_STRATEGY_EVAL_MODE", "llm").strip().lower()
         self.providers = load_provider_configs(order_env="GODEL_VERIFIER_PROVIDER_ORDER")
-        self.clients: list[tuple[str, str, AsyncOpenAI]] = []
+        self.clients: list[tuple[str, str, Any]] = []
         if self.mode in {"auto", "llm"}:
             for provider in self.providers:
                 if not provider.api_key:
@@ -90,10 +93,7 @@ class StrategyEvaluator:
                     (
                         provider.name,
                         provider.model_name,
-                        AsyncOpenAI(
-                            api_key=provider.api_key,
-                            base_url=provider.base_url if provider.base_url else None,
-                        ),
+                        build_provider_client(provider),
                     )
                 )
         self.last_error: str | None = None
@@ -140,7 +140,7 @@ class StrategyEvaluator:
             and os.getenv("GODEL_AGENT_CHALLENGES", "1").lower() not in ("0", "false", "no")
         ):
             extra = challenge_pool.sample_for_eval(rng)
-            if extra is not None and extra.task_type in tasks and extra.task_type == "factual_qa":
+            if extra is not None and extra.task_type in tasks:
                 agent_case = EvaluationCase(
                     task_type=extra.task_type,
                     task_id=extra.id,
@@ -224,16 +224,22 @@ class StrategyEvaluator:
             if not task_obj:
                 continue
             try:
-                if case.inline_prompt and case.task_type == "factual_qa":
-                    ref = dict(synthetic_factual_reference(case.inline_prompt))
-                    ref["id"] = case.task_id
-                    instance = TaskInstance(
-                        task_id=case.task_id,
-                        difficulty=task_obj.difficulty,
-                        prompt=case.inline_prompt,
-                        initial_solution=ref.get("initial_solution", ""),
-                        reference=ref,
-                    )
+                if case.inline_prompt:
+                    pooled = challenge_pool.get(case.task_id) if challenge_pool is not None else None
+                    if pooled is not None:
+                        instance = challenge_pool.materialize(pooled, tasks)
+                    elif case.task_type == "factual_qa":
+                        ref = dict(synthetic_factual_reference(case.inline_prompt))
+                        ref["id"] = case.task_id
+                        instance = TaskInstance(
+                            task_id=case.task_id,
+                            difficulty=task_obj.difficulty,
+                            prompt=case.inline_prompt,
+                            initial_solution=ref.get("initial_solution", ""),
+                            reference=ref,
+                        )
+                    else:
+                        raise ValueError("inline challenge has no verifier-owned reference")
                     diagnostics["agent_challenges_mixed"] += 1
                 else:
                     instance = task_obj.sample(random.Random(self.seed), task_id=case.task_id)
@@ -245,6 +251,8 @@ class StrategyEvaluator:
                 )
                 score, _, _ = await task_obj.grade(instance, solution)
                 score = max(0.0, min(1.0, float(score)))
+                if case.split == "agent_gen" and challenge_pool is not None:
+                    challenge_pool.record_evaluation(case.task_id, score)
             except Exception as exc:
                 if not self.allow_deterministic_fallback:
                     raise RuntimeError(
@@ -332,9 +340,9 @@ class StrategyEvaluator:
 
         errors: list[str] = []
         for provider_name, model_name, client in self.clients:
-            if ProviderCircuitBreaker.is_disabled(provider_name):
+            if ProviderCircuitBreaker.is_disabled(provider_name, scope="strategy"):
                 errors.append(
-                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name)})"
+                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name, scope='strategy')})"
                 )
                 continue
 
@@ -346,8 +354,9 @@ class StrategyEvaluator:
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
-                        temperature=0.2,
+                        temperature=0.0,
                         max_tokens=self.max_tokens,
+                        **provider_completion_kwargs(provider_name),
                     ),
                     timeout=self.timeout,
                 )
@@ -366,7 +375,9 @@ class StrategyEvaluator:
                     return content.strip(), f"llm:{provider_name}:{model_name}"
                 raise ValueError("strategy evaluator returned an empty completion")
             except Exception as exc:
-                message = ProviderCircuitBreaker.record_failure(provider_name, exc)
+                message = ProviderCircuitBreaker.record_failure(
+                    provider_name, exc, scope="strategy"
+                )
                 errors.append(f"{provider_name}: {message}")
                 logger.warning(
                     "Provider %s failed for strategy evaluation; trying fallback: %s",

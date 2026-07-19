@@ -16,7 +16,7 @@ from typing import Any
 from openenv.core.env_server.types import Action, Observation, State
 from pydantic import Field
 
-from godel_engine.models import AgentChallengeProposal, StrategyPatch
+from godel_engine.models import AgentChallengeProposal, EnvironmentPatch, StrategyPatch
 
 
 class GodelOpenEnvAction(Action):
@@ -25,7 +25,10 @@ class GodelOpenEnvAction(Action):
     # Allow extra fields to be ignored (for forward compatibility)
     model_config = {"extra": "ignore"}
     
-    solution: str = Field(..., description="Full replacement solution submitted by the agent.")
+    solution: str = Field(
+        default="",
+        description="Replacement answer for direct actions; optional for strategy patches.",
+    )
     edit_type: str = Field(default="rewrite")
     strategy_note: str = Field(default="")
     strategy_patch: StrategyPatch | dict[str, Any] | None = Field(
@@ -35,6 +38,10 @@ class GodelOpenEnvAction(Action):
     agent_challenge: AgentChallengeProposal | dict[str, Any] | None = Field(
         default=None,
         description="Optional new benchmark item (validated) for future held-out eval mixing.",
+    )
+    environment_patch: EnvironmentPatch | dict[str, Any] | None = Field(
+        default=None,
+        description="Verifier-preserving mutation of the environment curriculum.",
     )
 
 
@@ -64,6 +71,8 @@ class GodelOpenEnvObservation(Observation):
     budget_remaining: int = 0
     agent_challenges_queued: int = 0
     curriculum_level: str = "easy"
+    environment_generation: int = 0
+    environment_patch_history: list[dict[str, Any]] = Field(default_factory=list)
     reward_breakdown: dict[str, Any] = Field(default_factory=dict)
     patch_decision: dict[str, Any] | None = None
 
@@ -82,4 +91,8 @@ class GodelOpenEnvState(State):
     patches_rejected: int = 0
     strategy_lineage: list[str] = Field(default_factory=list)
     current_strategy_elo: float = 1000.0
+    environment_patches_proposed: int = 0
+    environment_patches_accepted: int = 0
+    environment_patches_rejected: int = 0
+    environment_generation: int = 0
 

@@ -6,15 +6,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Dict
+from typing import Any, Dict
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
 
 from godel_engine.llm_json import parse_llm_json_object
 from godel_engine.provider_runtime import (
     ProviderCircuitBreaker,
+    build_provider_client,
     load_provider_configs,
+    provider_completion_kwargs,
 )
 
 
@@ -31,7 +32,7 @@ class AgentGrader:
             os.getenv("GODEL_GRADING_MODE", "auto").strip().lower()
         )
 
-        self.clients: list[tuple[str, str, AsyncOpenAI]] = []
+        self.clients: list[tuple[str, str, Any]] = []
         for provider in self.providers:
             if not provider.api_key:
                 continue
@@ -39,22 +40,19 @@ class AgentGrader:
                 (
                     provider.name,
                     provider.model_name,
-                    AsyncOpenAI(
-                        api_key=provider.api_key,
-                        base_url=provider.base_url if provider.base_url else None,
-                    ),
+                    build_provider_client(provider),
                 )
             )
 
         self.semaphore = asyncio.Semaphore(max_concurrent)
-        self.timeout = timeout
+        self.timeout = int(os.getenv("GODEL_GRADING_TIMEOUT", str(timeout)) or timeout)
         self.last_error: str | None = None
         self.last_source = "deterministic"
         self.last_provider: str | None = None
 
     def is_available(self) -> bool:
         return any(
-            not ProviderCircuitBreaker.is_disabled(provider_name)
+            not ProviderCircuitBreaker.is_disabled(provider_name, scope="grader")
             for provider_name, _, _ in self.clients
         )
 
@@ -78,7 +76,7 @@ class AgentGrader:
             self.last_error = "no API client configured"
             return None
 
-        if all(ProviderCircuitBreaker.is_disabled(provider_name) for provider_name, _, _ in self.clients):
+        if all(ProviderCircuitBreaker.is_disabled(provider_name, scope="grader") for provider_name, _, _ in self.clients):
             reason = ProviderCircuitBreaker.reason() or "provider disabled"
             self.last_error = f"API grader disabled after previous provider failure: {reason}"
             return None
@@ -99,9 +97,9 @@ class AgentGrader:
 
         errors: list[str] = []
         for provider_name, model_name, client in self.clients:
-            if ProviderCircuitBreaker.is_disabled(provider_name):
+            if ProviderCircuitBreaker.is_disabled(provider_name, scope="grader"):
                 errors.append(
-                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name)})"
+                    f"{provider_name}: disabled after previous failure ({ProviderCircuitBreaker.reason(provider_name, scope='grader')})"
                 )
                 continue
 
@@ -117,9 +115,10 @@ class AgentGrader:
                             max_tokens=1200,
                             **(
                                 {"response_format": {"type": "json_object"}}
-                                if provider_name == "openai"
+                                if provider_name in {"openai", "ollama"}
                                 else {}
                             ),
+                            **provider_completion_kwargs(provider_name),
                         ),
                         timeout=self.timeout,
                     )
@@ -153,7 +152,9 @@ class AgentGrader:
                 self.last_error = None
                 return total, scores, feedback
             except Exception as exc:
-                message = ProviderCircuitBreaker.record_failure(provider_name, exc)
+                message = ProviderCircuitBreaker.record_failure(
+                    provider_name, exc, scope="grader"
+                )
                 errors.append(f"{provider_name}: {message}")
                 logger.warning(
                     "Provider %s failed for grading; trying fallback: %s",

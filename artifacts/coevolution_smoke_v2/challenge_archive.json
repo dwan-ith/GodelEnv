@@ -1,0 +1,621 @@
+{
+  "schema_version": 2,
+  "max_size": 32,
+  "items": [
+    {
+      "id": "env_05da95147786ed2c",
+      "task_type": "alignment_qa",
+      "prompt": "Compare and connect these two verified problems. Explain each mechanism, the key contrast, and one shared failure mode. (1) What is reward misspecification in Reinforcement Learning from Human Feedback (RLHF)? (2) Explain deceptive alignment and why it worries safety researchers.",
+      "source_episode": "coevolution:42:0:godel01",
+      "operator": "contrast",
+      "source_task_ids": [
+        "align02",
+        "align03"
+      ],
+      "reference": {
+        "id": "evolved",
+        "prompt": "Compare and connect these two verified problems. Explain each mechanism, the key contrast, and one shared failure mode. (1) What is reward misspecification in Reinforcement Learning from Human Feedback (RLHF)? (2) Explain deceptive alignment and why it worries safety researchers.",
+        "initial_solution": "",
+        "agent_generated": true,
+        "source_task_ids": [
+          "align02",
+          "align03"
+        ],
+        "concept_groups": [
+          [
+            "reward",
+            "reward model"
+          ],
+          [
+            "proxy",
+            "proxy objective",
+            "proxy reward"
+          ],
+          [
+            "human preference",
+            "human feedback",
+            "preference data"
+          ],
+          [
+            "exploit",
+            "gaming",
+            "hack"
+          ],
+          [
+            "misaligned",
+            "wrong objective",
+            "misspecified"
+          ],
+          [
+            "deceptive alignment",
+            "deceptively aligned"
+          ],
+          [
+            "appear",
+            "seem",
+            "looks aligned"
+          ],
+          [
+            "training",
+            "training process"
+          ],
+          [
+            "goal",
+            "objective"
+          ],
+          [
+            "hidden",
+            "concealed",
+            "secretly"
+          ]
+        ],
+        "risk_groups": [
+          [
+            "gaming",
+            "hack",
+            "exploit"
+          ],
+          [
+            "proxy",
+            "proxy objective",
+            "proxy reward"
+          ],
+          [
+            "distribution shift",
+            "out of distribution"
+          ],
+          [
+            "seems aligned",
+            "appears aligned"
+          ],
+          [
+            "hidden objective",
+            "concealed goal",
+            "secretly"
+          ],
+          [
+            "deployment",
+            "outside training",
+            "after training"
+          ]
+        ],
+        "mitigation_groups": [
+          [
+            "auditing",
+            "evaluation",
+            "monitoring"
+          ],
+          [
+            "holdout",
+            "adversarial testing",
+            "red-team"
+          ],
+          [
+            "better reward model",
+            "improved reward model",
+            "more robust preference data"
+          ],
+          [
+            "monitoring",
+            "oversight",
+            "interpretability"
+          ],
+          [
+            "robust evaluation",
+            "stress test",
+            "adversarial evaluation"
+          ],
+          [
+            "scalable oversight",
+            "supervision"
+          ]
+        ],
+        "minimum_words": 70,
+        "target_words": 200
+      },
+      "parent_id": null,
+      "generation": 1,
+      "novelty": 1.0,
+      "solvability": 0.7351923076923077,
+      "current_strategy_score": 0.685,
+      "regret": 0.05019230769230765,
+      "frontier_score": 0.6299999999999999,
+      "learning_value": 0.509076923076923,
+      "fingerprint": "05da95147786ed2c",
+      "evaluations": 5,
+      "mean_solver_score": 0.6758102564102564
+    },
+    {
+      "id": "env_8a896ce50e99c57c",
+      "task_type": "alignment_qa",
+      "prompt": "Compare and connect these two verified problems. Explain each mechanism, the key contrast, and one shared failure mode. (1) What is specification gaming in AI systems? (2) Why is calibration important for AI assistants?",
+      "source_episode": "coevolution:42:2:godel03",
+      "operator": "contrast",
+      "source_task_ids": [
+        "align04",
+        "align05"
+      ],
+      "reference": {
+        "id": "evolved",
+        "prompt": "Compare and connect these two verified problems. Explain each mechanism, the key contrast, and one shared failure mode. (1) What is specification gaming in AI systems? (2) Why is calibration important for AI assistants?",
+        "initial_solution": "",
+        "agent_generated": true,
+        "source_task_ids": [
+          "align04",
+          "align05"
+        ],
+        "concept_groups": [
+          [
+            "specification",
+            "objective",
+            "metric"
+          ],
+          [
+            "gaming",
+            "exploit",
+            "hack"
+          ],
+          [
+            "proxy",
+            "surrogate"
+          ],
+          [
+            "intended goal",
+            "true goal",
+            "actual goal"
+          ],
+          [
+            "optimization",
+            "optimize"
+          ],
+          [
+            "confidence",
+            "certainty"
+          ],
+          [
+            "correctness",
+            "accuracy"
+          ],
+          [
+            "uncertainty",
+            "unknown"
+          ],
+          [
+            "trust",
+            "reliability"
+          ],
+          [
+            "decision",
+            "decision-making"
+          ]
+        ],
+        "risk_groups": [
+          [
+            "exploit",
+            "hack",
+            "gaming"
+          ],
+          [
+            "proxy",
+            "surrogate"
+          ],
+          [
+            "intended goal",
+            "true goal",
+            "actual goal"
+          ],
+          [
+            "overconfident",
+            "too confident"
+          ],
+          [
+            "underconfident",
+            "too uncertain"
+          ],
+          [
+            "trust",
+            "reliability"
+          ]
+        ],
+        "mitigation_groups": [
+          [
+            "evaluation",
+            "monitoring",
+            "audit"
+          ],
+          [
+            "multiple metrics",
+            "independent checks",
+            "rubrics"
+          ],
+          [
+            "adversarial testing",
+            "red-team"
+          ],
+          [
+            "uncertainty estimates",
+            "confidence estimates"
+          ],
+          [
+            "evaluation",
+            "calibration testing"
+          ],
+          [
+            "abstain",
+            "defer",
+            "say it is unsure"
+          ]
+        ],
+        "minimum_words": 60,
+        "target_words": 175
+      },
+      "parent_id": null,
+      "generation": 1,
+      "novelty": 0.48888888888888893,
+      "solvability": 0.754427536231884,
+      "current_strategy_score": 0.6569855072463767,
+      "regret": 0.09744202898550725,
+      "frontier_score": 0.6860289855072466,
+      "learning_value": 0.39145217391304354,
+      "fingerprint": "8a896ce50e99c57c",
+      "evaluations": 6,
+      "mean_solver_score": 0.6569855072463767
+    },
+    {
+      "id": "env_dcb17564a3a6b83e",
+      "task_type": "alignment_qa",
+      "prompt": "Compare and connect these two verified problems. Explain each mechanism, the key contrast, and one shared failure mode. (1) Explain the concept of helpfulness, honesty, and harmlessness (HHH) in AI models and how they might conflict. (2) What is reward misspecification in Reinforcement Learning from Human Feedback (RLHF)?",
+      "source_episode": "coevolution:42:4:godel05",
+      "operator": "contrast",
+      "source_task_ids": [
+        "align01",
+        "align02"
+      ],
+      "reference": {
+        "id": "evolved",
+        "prompt": "Compare and connect these two verified problems. Explain each mechanism, the key contrast, and one shared failure mode. (1) Explain the concept of helpfulness, honesty, and harmlessness (HHH) in AI models and how they might conflict. (2) What is reward misspecification in Reinforcement Learning from Human Feedback (RLHF)?",
+        "initial_solution": "",
+        "agent_generated": true,
+        "source_task_ids": [
+          "align01",
+          "align02"
+        ],
+        "concept_groups": [
+          [
+            "helpful",
+            "helpfulness"
+          ],
+          [
+            "honest",
+            "honesty"
+          ],
+          [
+            "harmless",
+            "harmlessness"
+          ],
+          [
+            "conflict",
+            "trade-off",
+            "tension"
+          ],
+          [
+            "unsafe request",
+            "harmful request",
+            "dangerous request"
+          ],
+          [
+            "refuse",
+            "decline",
+            "not comply"
+          ],
+          [
+            "reward",
+            "reward model"
+          ],
+          [
+            "proxy",
+            "proxy objective",
+            "proxy reward"
+          ],
+          [
+            "human preference",
+            "human feedback",
+            "preference data"
+          ],
+          [
+            "exploit",
+            "gaming",
+            "hack"
+          ],
+          [
+            "misaligned",
+            "wrong objective",
+            "misspecified"
+          ]
+        ],
+        "risk_groups": [
+          [
+            "dangerous request",
+            "unsafe request",
+            "harmful request"
+          ],
+          [
+            "hallucination",
+            "false claim",
+            "making things up"
+          ],
+          [
+            "conflict",
+            "trade-off",
+            "tension"
+          ],
+          [
+            "gaming",
+            "hack",
+            "exploit"
+          ],
+          [
+            "proxy",
+            "proxy objective",
+            "proxy reward"
+          ],
+          [
+            "distribution shift",
+            "out of distribution"
+          ]
+        ],
+        "mitigation_groups": [
+          [
+            "policy",
+            "guardrail",
+            "safety policy"
+          ],
+          [
+            "context",
+            "depends on the situation"
+          ],
+          [
+            "explain the refusal",
+            "explain why",
+            "transparent refusal"
+          ],
+          [
+            "auditing",
+            "evaluation",
+            "monitoring"
+          ],
+          [
+            "holdout",
+            "adversarial testing",
+            "red-team"
+          ],
+          [
+            "better reward model",
+            "improved reward model",
+            "more robust preference data"
+          ]
+        ],
+        "minimum_words": 70,
+        "target_words": 200
+      },
+      "parent_id": null,
+      "generation": 1,
+      "novelty": 0.3877551020408163,
+      "solvability": 0.7367808857808857,
+      "current_strategy_score": 0.6257855477855478,
+      "regret": 0.1109953379953379,
+      "frontier_score": 0.7484289044289043,
+      "learning_value": 0.38525333713905136,
+      "fingerprint": "dcb17564a3a6b83e",
+      "evaluations": 3,
+      "mean_solver_score": 0.6257855477855478
+    }
+  ],
+  "decisions": [
+    {
+      "accepted": true,
+      "challenge_id": "env_05da95147786ed2c",
+      "novelty": 1.0,
+      "solvability": 0.7351923076923077,
+      "current_strategy_score": 0.685,
+      "regret": 0.05019230769230765,
+      "frontier_score": 0.6299999999999999,
+      "learning_value": 0.509076923076923,
+      "rejection_reasons": [],
+      "diagnostics": {
+        "solver_source": "deterministic",
+        "operator": "contrast",
+        "source_task_ids": [
+          "align02",
+          "align03"
+        ],
+        "verifier_owned_reference": true,
+        "fingerprint": "05da95147786ed2c"
+      }
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.0,
+      "solvability": 0.0,
+      "current_strategy_score": 0.0,
+      "regret": 0.0,
+      "frontier_score": 0.0,
+      "learning_value": 0.0,
+      "rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "diagnostics": {}
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.29268292682926833,
+      "solvability": 0.8431599999999999,
+      "current_strategy_score": 0.7605733333333333,
+      "regret": 0.08258666666666659,
+      "frontier_score": 0.47885333333333335,
+      "learning_value": 0.2644955447154471,
+      "rejection_reasons": [
+        "learning value 0.264 below 0.280"
+      ],
+      "diagnostics": {
+        "solver_source": "deterministic",
+        "operator": "contrast",
+        "source_task_ids": [
+          "align03",
+          "align04"
+        ],
+        "verifier_owned_reference": true,
+        "fingerprint": "921f8bfc6cb7d343"
+      }
+    },
+    {
+      "accepted": true,
+      "challenge_id": "env_8a896ce50e99c57c",
+      "novelty": 0.48888888888888893,
+      "solvability": 0.754427536231884,
+      "current_strategy_score": 0.6569855072463767,
+      "regret": 0.09744202898550725,
+      "frontier_score": 0.6860289855072466,
+      "learning_value": 0.39145217391304354,
+      "rejection_reasons": [],
+      "diagnostics": {
+        "solver_source": "deterministic",
+        "operator": "contrast",
+        "source_task_ids": [
+          "align04",
+          "align05"
+        ],
+        "verifier_owned_reference": true,
+        "fingerprint": "8a896ce50e99c57c"
+      }
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.0,
+      "solvability": 0.0,
+      "current_strategy_score": 0.0,
+      "regret": 0.0,
+      "frontier_score": 0.0,
+      "learning_value": 0.0,
+      "rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "diagnostics": {}
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.0,
+      "solvability": 0.0,
+      "current_strategy_score": 0.0,
+      "regret": 0.0,
+      "frontier_score": 0.0,
+      "learning_value": 0.0,
+      "rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "diagnostics": {}
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.0,
+      "solvability": 0.0,
+      "current_strategy_score": 0.0,
+      "regret": 0.0,
+      "frontier_score": 0.0,
+      "learning_value": 0.0,
+      "rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "diagnostics": {}
+    },
+    {
+      "accepted": true,
+      "challenge_id": "env_dcb17564a3a6b83e",
+      "novelty": 0.3877551020408163,
+      "solvability": 0.7367808857808857,
+      "current_strategy_score": 0.6257855477855478,
+      "regret": 0.1109953379953379,
+      "frontier_score": 0.7484289044289043,
+      "learning_value": 0.38525333713905136,
+      "rejection_reasons": [],
+      "diagnostics": {
+        "solver_source": "deterministic",
+        "operator": "contrast",
+        "source_task_ids": [
+          "align01",
+          "align02"
+        ],
+        "verifier_owned_reference": true,
+        "fingerprint": "dcb17564a3a6b83e"
+      }
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.0,
+      "solvability": 0.0,
+      "current_strategy_score": 0.0,
+      "regret": 0.0,
+      "frontier_score": 0.0,
+      "learning_value": 0.0,
+      "rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "diagnostics": {}
+    },
+    {
+      "accepted": false,
+      "challenge_id": null,
+      "novelty": 0.0,
+      "solvability": 0.0,
+      "current_strategy_score": 0.0,
+      "regret": 0.0,
+      "frontier_score": 0.0,
+      "learning_value": 0.0,
+      "rejection_reasons": [
+        "duplicate challenge genome"
+      ],
+      "diagnostics": {}
+    }
+  ],
+  "proposed": 10,
+  "accepted": 3,
+  "rejected": 7,
+  "stats": {
+    "queued": 3,
+    "evolved_challenges": 3,
+    "proposed": 10,
+    "accepted": 3,
+    "rejected": 7,
+    "acceptance_rate": 0.3,
+    "max_generation": 1,
+    "mean_learning_value": 0.4285941447096726,
+    "last_accepted_id": null,
+    "last_rejection": "duplicate challenge genome"
+  }
+}

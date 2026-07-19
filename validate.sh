@@ -73,7 +73,7 @@ log "Step 3/3: Running openenv validate ..."
 
 if ! command -v openenv &>/dev/null; then
   fail "openenv command not found"
-  hint "Install it: pip install openenv-core"
+  hint "Install it: pip install openenv==0.4.1"
   stop_at "Step 3"
 fi
 

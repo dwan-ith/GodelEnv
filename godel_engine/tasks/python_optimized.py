@@ -35,7 +35,27 @@ _PYTHON_DATASET = [
             (10, [2, 3, 5, 7]),
             (20, [2, 3, 5, 7, 11, 13, 17, 19]),
         ],
-    }
+    },
+    {
+        "id": "py02",
+        "prompt": "Optimize this Python prime-number function, preserve its contract, and add a docstring and type hints.",
+        "initial_solution": (
+            "def get_primes(limit):\n"
+            "    result = []\n"
+            "    for candidate in range(2, limit):\n"
+            "        divisors = [d for d in range(2, candidate) if candidate % d == 0]\n"
+            "        if not divisors:\n"
+            "            result.append(candidate)\n"
+            "    return result\n"
+        ),
+        "function_name": "get_primes",
+        "test_cases": [
+            (1, []),
+            (3, [2]),
+            (12, [2, 3, 5, 7, 11]),
+            (30, [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]),
+        ],
+    },
 ]
 
 
